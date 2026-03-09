@@ -29,8 +29,12 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('departments/list', [DepartmentController::class, 'getDepartmentList']);
     Route::apiResource('departments', DepartmentController::class);
 
-    Route::patch('employees/{id}/toggle-status', [EmployeeController::class, 'toggleStatus']);
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
+    Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);
+    Route::delete('employees/{employee}/force-delete', [EmployeeController::class, 'forceDelete']);
+    Route::patch('employees/{employee}/toggle-status', [EmployeeController::class, 'toggleStatus']);
+    Route::patch('employees/{employee}/make-permanent', [EmployeeController::class, 'makePermanent']);
+    Route::post('employees/{employee}/terminate', [EmployeeController::class, 'terminate']);
     Route::apiResource('employees', EmployeeController::class);
 
     Route::patch('users/{id}/toggle-status', [UserController::class, 'toggleStatus']);

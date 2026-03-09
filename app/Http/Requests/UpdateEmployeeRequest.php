@@ -49,12 +49,15 @@ class UpdateEmployeeRequest extends FormRequest
             'have_whatsapp' => 'sometimes|boolean',
             'whatsapp_number' => 'nullable|string|max:20',
             'joined_at' => 'sometimes|date',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date',
+            'employee_type' => 'sometimes|in:permanent,contract,internship,probation',
+            'description' => 'nullable|string',
             'left_at' => 'nullable|date',
             'basic_salary' => 'sometimes|numeric|min:0',
             'is_active' => 'sometimes|boolean',
         ];
     }
-
     protected function failedValidation(Validator $validator)
     {
         $errorMessages = $validator->errors();

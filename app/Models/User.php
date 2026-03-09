@@ -26,12 +26,6 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         'email',
         'password',
         'user_type',
-        'level_id',
-        'parent_user_id',
-        'branch_id',
-        'zone_id',
-        'region_id',
-        'province_id',
         'is_active',
         'can_login',
         'profile_image',
@@ -85,47 +79,26 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     }
 
     /* Relationships */
-
-    public function level()
+    public function employee()
     {
-        return $this->belongsTo(Level::class);
-    }
-
-    public function parent()
-    {
-        return $this->belongsTo(User::class, 'parent_user_id');
-    }
-
-    public function children()
-    {
-        return $this->hasMany(User::class, 'parent_user_id');
-    }
-
-    public function branch()
-    {
-        return $this->belongsTo(Branch::class);
-    }
-
-    public function zone()
-    {
-        return $this->belongsTo(Zone::class);
-    }
-
-    public function region()
-    {
-        return $this->belongsTo(Region::class);
-    }
-
-    public function province()
-    {
-        return $this->belongsTo(Province::class);
+        return $this->belongsTo(Employee::class);
     }
 
     /* Helper Methods */
-
     public function canLogin(): bool
     {
-        return $this->is_active && $this->can_login;
+        $canLogin = $this->is_active && $this->can_login;
+
+        if ($this->employee_id && $this->relationLoaded('employee')) {
+            return $canLogin && $this->employee && $this->employee->is_active;
+        }
+
+        // If not loaded, check existence
+        if ($this->employee_id) {
+            return $canLogin && $this->load('employee')->employee->is_active;
+        }
+
+        return $canLogin;
     }
 
     public function updateLastLogin($ipAddress = null)

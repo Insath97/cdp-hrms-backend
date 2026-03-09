@@ -36,6 +36,14 @@ class Employee extends Model
         'joined_at',
         'left_at',
         'basic_salary',
+        'employee_type',
+        'start_date',
+        'end_date',
+        'termination_reason',
+        'permanent_at',
+        'description',
+        'address_line_2',
+        'landmark',
         'is_active'
     ];
 
@@ -43,6 +51,9 @@ class Employee extends Model
         'date_of_birth' => 'date',
         'joined_at' => 'datetime',
         'left_at' => 'datetime',
+        'start_date' => 'date',
+        'end_date' => 'date',
+        'permanent_at' => 'datetime',
         'basic_salary' => 'decimal:2',
         'is_active' => 'boolean',
         'have_whatsapp' => 'boolean'

@@ -20,8 +20,9 @@ class EmployeeController extends Controller implements HasMiddleware
         return [
             new Middleware('permission:Employee Index', only: ['index', 'show']),
             new Middleware('permission:Employee Create', only: ['store']),
-            new Middleware('permission:Employee Update', only: ['update']),
-            new Middleware('permission:Employee Delete', only: ['destroy']),
+            new Middleware('permission:Employee Update', only: ['update', 'makePermanent', 'terminate']),
+            new Middleware('permission:Employee Delete', only: ['destroy', 'forceDelete']),
+            new Middleware('permission:Employee Restore', only: ['restore']),
             new Middleware('permission:Employee Toggle Status', only: ['toggleStatus']),
         ];
     }
@@ -270,6 +271,186 @@ class EmployeeController extends Controller implements HasMiddleware
             ], 500);
         }
     }
+    public function makePermanent(string $id)
+    {
+        try {
+            $employee = Employee::find($id);
+
+            if (!$employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found'
+                ], 404);
+            }
+
+            $employee->update([
+                'employee_type' => 'permanent',
+                'permanent_at' => now()
+            ]);
+
+            Log::info('Employee made permanent', [
+                'user_id' => Auth::id(),
+                'employee_id' => $employee->id
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employee status updated to permanent',
+                'data' => $employee
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to update employee to permanent', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to update employee status',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    public function terminate(Request $request, string $id)
+    {
+        try {
+            $request->validate([
+                'termination_reason' => 'required|string|max:1000',
+                'left_at' => 'sometimes|date'
+            ]);
+
+            $employee = Employee::find($id);
+
+            if (!$employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found'
+                ], 404);
+            }
+
+            $employee->update([
+                'employment_status' => 'terminated',
+                'is_active' => false,
+                'termination_reason' => $request->termination_reason,
+                'left_at' => $request->left_at ?? now()
+            ]);
+
+            Log::info('Employee terminated', [
+                'user_id' => Auth::id(),
+                'employee_id' => $employee->id,
+                'reason' => $request->termination_reason
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employee terminated successfully',
+                'data' => $employee
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to terminate employee', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to terminate employee',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    public function restore(string $id)
+    {
+        try {
+            $employee = Employee::withTrashed()->find($id);
+
+            if (!$employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found'
+                ], 404);
+            }
+
+            if (!$employee->trashed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee is not deleted'
+                ], 422);
+            }
+
+            $employee->restore();
+
+            Log::info('Employee restored', [
+                'user_id' => Auth::id(),
+                'employee_id' => $id
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employee restored successfully',
+                'data' => $employee
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to restore employee', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to restore employee',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    public function forceDelete(string $id)
+    {
+        try {
+            $employee = Employee::withTrashed()->find($id);
+
+            if (!$employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found'
+                ], 404);
+            }
+
+            // Check if user is Super Admin
+            if (!Auth::user()->hasRole('Super Admin')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Only Super Admin can permanently delete employees'
+                ], 403);
+            }
+
+            $employee->forceDelete();
+
+            Log::info('Employee permanently deleted', [
+                'user_id' => Auth::id(),
+                'employee_id' => $id
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employee permanently deleted'
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to force delete employee', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to permanently delete employee',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
     public function getEmployeeList()
     {
         try {

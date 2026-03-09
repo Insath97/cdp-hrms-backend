@@ -17,9 +17,10 @@ return new class extends Migration
             $table->string('l_name');
             $table->string('full_name');
             $table->string('name_with_initials');
-            $table->string('profile_image')->nullable();
             $table->string('employee_code')->unique();
             $table->foreignId('department_id')->nullable()->constrained('departments')->onDelete('set null');
+
+            $table->enum('employee_type', ['permanent', 'contract', 'internship', 'probation'])->default('permanent');
 
             $table->enum('id_type', ['nic', 'passport', 'driving_license', 'other'])->default('nic');
             $table->string('id_number')->unique();
@@ -39,11 +40,17 @@ return new class extends Migration
             $table->boolean('have_whatsapp')->default(false);
             $table->string('whatsapp_number')->nullable();
 
+            $table->date('start_date')->nullable();
+            $table->date('end_date')->nullable();
             $table->timestamp('joined_at')->useCurrent();
             $table->timestamp('left_at')->nullable();
+
+            $table->text('termination_reason')->nullable();
+            $table->timestamp('permanent_at')->nullable();
             $table->enum('employment_status', ['active', 'inactive', 'terminated'])->default('active');
             $table->string('designation');
             $table->decimal('basic_salary', 10, 2)->default(0);
+            $table->text('description')->nullable();
 
             $table->boolean('is_active')->default(true);
             $table->softDeletes();
