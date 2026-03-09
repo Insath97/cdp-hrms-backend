@@ -19,12 +19,14 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('me', [AuthController::class, 'me']);
 
+    Route::get('permissions/list', [PermissionController::class, 'getPermissionList']);
     Route::apiResource('permissions', PermissionController::class);
 
     Route::get('roles/list/', [RoleController::class, 'getAvailableRoles']);
     Route::apiResource('roles', RoleController::class);
 
     Route::patch('departments/{id}/toggle-status', [DepartmentController::class, 'toggleStatus']);
+    Route::get('departments/list', [DepartmentController::class, 'getDepartmentList']);
     Route::apiResource('departments', DepartmentController::class);
 
     Route::patch('employees/{id}/toggle-status', [EmployeeController::class, 'toggleStatus']);

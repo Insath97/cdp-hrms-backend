@@ -242,4 +242,30 @@ class DepartmentController extends Controller implements HasMiddleware
             ], 500);
         }
     }
+    public function getDepartmentList()
+    {
+        try {
+            $departments = Department::where('is_active', true)
+                ->select('id', 'name', 'code')
+                ->orderBy('name', 'asc')
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Departments retrieved successfully',
+                'data' => $departments
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to retrieve department list', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve departments',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
 }

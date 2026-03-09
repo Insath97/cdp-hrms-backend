@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('full_name');
             $table->string('name_with_initials');
             $table->string('profile_image')->nullable();
+            $table->string('employee_code')->unique();
             $table->foreignId('department_id')->nullable()->constrained('departments')->onDelete('set null');
 
             $table->enum('id_type', ['nic', 'passport', 'driving_license', 'other'])->default('nic');
@@ -29,13 +30,10 @@ return new class extends Migration
             $table->string('phone')->nullable();
 
             $table->string('address_line_1')->nullable();
-            $table->string('address_line_2')->nullable();
-            $table->string('landmark')->nullable();
             $table->string('city')->nullable();
             $table->string('state')->nullable();
             $table->string('country')->default('Sri Lanka');
             $table->string('postal_code')->nullable();
-
             $table->string('phone_primary');
             $table->string('phone_secondary')->nullable();
             $table->boolean('have_whatsapp')->default(false);
@@ -43,6 +41,8 @@ return new class extends Migration
 
             $table->timestamp('joined_at')->useCurrent();
             $table->timestamp('left_at')->nullable();
+            $table->enum('employment_status', ['active', 'inactive', 'terminated'])->default('active');
+            $table->string('designation');
             $table->decimal('basic_salary', 10, 2)->default(0);
 
             $table->boolean('is_active')->default(true);
