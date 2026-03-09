@@ -32,6 +32,13 @@ class PermissionsSeeder extends Seeder
             ['name' => 'User Update', 'group_name' => 'User Management Permissions'],
             ['name' => 'User Delete', 'group_name' => 'User Management Permissions'],
             ['name' => 'User Toggle Status', 'group_name' => 'User Management Permissions'],
+
+            ['name' => 'Employee Index', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Create', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Update', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Delete', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Restore', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Toggle Status', 'group_name' => 'Employee Management Permissions'],
         ];
 
         foreach ($permissions as $permission) {
