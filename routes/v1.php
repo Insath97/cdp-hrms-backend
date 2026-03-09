@@ -30,6 +30,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::apiResource('departments', DepartmentController::class);
 
     Route::patch('employees/{id}/toggle-status', [EmployeeController::class, 'toggleStatus']);
+    Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::apiResource('employees', EmployeeController::class);
 
     Route::patch('users/{id}/toggle-status', [UserController::class, 'toggleStatus']);

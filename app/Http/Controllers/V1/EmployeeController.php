@@ -270,4 +270,30 @@ class EmployeeController extends Controller implements HasMiddleware
             ], 500);
         }
     }
+    public function getEmployeeList()
+    {
+        try {
+            $employees = Employee::active()
+                ->select('id', 'full_name', 'employee_id')
+                ->orderBy('full_name', 'asc')
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employees retrieved successfully',
+                'data' => $employees
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to retrieve employee list', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve employees',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
 }
