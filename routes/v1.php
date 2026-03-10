@@ -7,6 +7,8 @@ use App\Http\Controllers\V1\UserController;
 use App\Http\Controllers\V1\DepartmentController;
 use App\Http\Controllers\V1\EmployeeController;
 use App\Http\Controllers\V1\ProvinceController;
+use App\Http\Controllers\V1\RegionController;
+use App\Http\Controllers\V1\ZonalController;
 use Illuminate\Support\Facades\Route;
 
 /* public routes */
@@ -30,6 +32,14 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('provinces/list', [ProvinceController::class, 'getProvinceList']);
     Route::patch('provinces/{id}/toggle-status', [ProvinceController::class, 'toggleStatus']);
     Route::apiResource('provinces', ProvinceController::class);
+
+    Route::get('regions/list', [RegionController::class, 'getRegionList']);
+    Route::patch('regions/{id}/toggle-status', [RegionController::class, 'toggleStatus']);
+    Route::apiResource('regions', RegionController::class);
+
+    Route::get('zonals/list', [ZonalController::class, 'getZonalList']);
+    Route::patch('zonals/{id}/toggle-status', [ZonalController::class, 'toggleStatus']);
+    Route::apiResource('zonals', ZonalController::class);
 
     Route::patch('departments/{id}/toggle-status', [DepartmentController::class, 'toggleStatus']);
     Route::get('departments/list', [DepartmentController::class, 'getDepartmentList']);

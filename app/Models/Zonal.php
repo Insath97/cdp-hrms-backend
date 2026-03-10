@@ -6,14 +6,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class Region extends Model
+class Zonal extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'name',
         'code',
-        'province_id',
+        'region_id',
         'is_active'
     ];
 
@@ -21,9 +21,9 @@ class Region extends Model
         'is_active' => 'boolean',
     ];
 
-    public function province(): BelongsTo
+    public function region(): BelongsTo
     {
-        return $this->belongsTo(Province::class);
+        return $this->belongsTo(Region::class);
     }
 
     public function scopeActive($query)

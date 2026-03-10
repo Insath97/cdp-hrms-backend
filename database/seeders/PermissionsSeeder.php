@@ -39,6 +39,24 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Employee Delete', 'group_name' => 'Employee Management Permissions'],
             ['name' => 'Employee Restore', 'group_name' => 'Employee Management Permissions'],
             ['name' => 'Employee Toggle Status', 'group_name' => 'Employee Management Permissions'],
+
+            ['name' => 'Province Index', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Province Create', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Province Update', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Province Delete', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Province Toggle Status', 'group_name' => 'Region Management Permissions'],
+
+            ['name' => 'Region Index', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Region Create', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Region Update', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Region Delete', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Region Toggle Status', 'group_name' => 'Region Management Permissions'],
+
+            ['name' => 'Zonal Index', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Zonal Create', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Zonal Update', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Zonal Delete', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Zonal Toggle Status', 'group_name' => 'Region Management Permissions'],
         ];
 
         foreach ($permissions as $permission) {

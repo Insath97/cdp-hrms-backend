@@ -11,11 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('regions', function (Blueprint $table) {
+        Schema::create('zonals', function (Blueprint $table) {
             $table->id();
-            $table->string('name'); // Colombo, Gampaha, Kandy
-            $table->string('code')->unique(); // CMB, GPH, KDY
-            $table->foreignId('province_id')->constrained('provinces')->cascadeOnDelete();
+            $table->string('name'); // Colombo Central, Colombo North
+            $table->string('code')->unique(); // CMB-C, CMB-N
+            $table->foreignId('region_id')->constrained('regions')->cascadeOnDelete();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
@@ -26,6 +26,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('regions');
+        Schema::dropIfExists('zonals');
     }
 };
