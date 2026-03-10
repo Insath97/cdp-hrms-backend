@@ -6,9 +6,11 @@ use App\Http\Controllers\V1\RoleController;
 use App\Http\Controllers\V1\UserController;
 use App\Http\Controllers\V1\DepartmentController;
 use App\Http\Controllers\V1\EmployeeController;
+use App\Http\Controllers\V1\ProvinceController;
 use Illuminate\Support\Facades\Route;
 
 /* public routes */
+
 Route::prefix('v1')->group(function () {
     Route::post('login', [AuthController::class, 'login']);
 });
@@ -24,6 +26,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::get('roles/list/', [RoleController::class, 'getAvailableRoles']);
     Route::apiResource('roles', RoleController::class);
+
+    Route::get('provinces/list', [ProvinceController::class, 'getProvinceList']);
+    Route::patch('provinces/{id}/toggle-status', [ProvinceController::class, 'toggleStatus']);
+    Route::apiResource('provinces', ProvinceController::class);
 
     Route::patch('departments/{id}/toggle-status', [DepartmentController::class, 'toggleStatus']);
     Route::get('departments/list', [DepartmentController::class, 'getDepartmentList']);
