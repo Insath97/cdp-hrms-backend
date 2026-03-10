@@ -32,7 +32,7 @@ class RegionController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = Region::with('province');
+            $query = Region::with('zonal');
 
             if ($request->has('search')) {
                 $query->search($request->search);
@@ -42,15 +42,15 @@ class RegionController extends Controller implements HasMiddleware
                 $query->where('is_active', $request->boolean('is_active'));
             }
 
-            if ($request->has('province_id')) {
-                $query->where('province_id', $request->province_id);
+            if ($request->has('zonal_id')) {
+                $query->where('zonal_id', $request->zonal_id);
             }
 
             $regions = $query->paginate($perPage);
 
             Log::info('Regions index accessed', [
                 'user_id' => Auth::id(),
-                'filters' => $request->only(['search', 'is_active', 'province_id', 'per_page']),
+                'filters' => $request->only(['search', 'is_active', 'zonal_id', 'per_page']),
                 'count' => $regions->count()
             ]);
 
@@ -112,7 +112,7 @@ class RegionController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $region = Region::with('province')->find($id);
+            $region = Region::with('zonal')->find($id);
 
             if (!$region) {
                 return response()->json([
@@ -283,12 +283,12 @@ class RegionController extends Controller implements HasMiddleware
         try {
             $query = Region::active();
 
-            if ($request->has('province_id')) {
-                $query->where('province_id', $request->province_id);
+            if ($request->has('zonal_id')) {
+                $query->where('zonal_id', $request->zonal_id);
             }
 
-            $regions = $query->select('id', 'name', 'code', 'province_id')
-                ->with('province:id,name')
+            $regions = $query->select('id', 'name', 'code', 'zonal_id')
+                ->with('zonal:id,name')
                 ->orderBy('name', 'asc')
                 ->get();
 

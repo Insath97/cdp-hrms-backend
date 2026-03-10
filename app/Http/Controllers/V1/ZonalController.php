@@ -32,7 +32,7 @@ class ZonalController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = Zonal::with('region');
+            $query = Zonal::with('province');
 
             if ($request->has('search')) {
                 $query->search($request->search);
@@ -42,15 +42,15 @@ class ZonalController extends Controller implements HasMiddleware
                 $query->where('is_active', $request->boolean('is_active'));
             }
 
-            if ($request->has('region_id')) {
-                $query->where('region_id', $request->region_id);
+            if ($request->has('province_id')) {
+                $query->where('province_id', $request->province_id);
             }
 
             $zonals = $query->paginate($perPage);
 
             Log::info('Zonals index accessed', [
                 'user_id' => Auth::id(),
-                'filters' => $request->only(['search', 'is_active', 'region_id', 'per_page']),
+                'filters' => $request->only(['search', 'is_active', 'province_id', 'per_page']),
                 'count' => $zonals->count()
             ]);
 
@@ -112,7 +112,7 @@ class ZonalController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $zonal = Zonal::with('region')->find($id);
+            $zonal = Zonal::with('province')->find($id);
 
             if (!$zonal) {
                 return response()->json([
@@ -283,12 +283,12 @@ class ZonalController extends Controller implements HasMiddleware
         try {
             $query = Zonal::active();
 
-            if ($request->has('region_id')) {
-                $query->where('region_id', $request->region_id);
+            if ($request->has('province_id')) {
+                $query->where('province_id', $request->province_id);
             }
 
-            $zonals = $query->select('id', 'name', 'code', 'region_id')
-                ->with('region:id,name')
+            $zonals = $query->select('id', 'name', 'code', 'province_id')
+                ->with('province:id,name')
                 ->orderBy('name', 'asc')
                 ->get();
 

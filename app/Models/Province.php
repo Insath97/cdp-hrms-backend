@@ -20,9 +20,9 @@ class Province extends Model
         'is_active' => 'boolean',
     ];
 
-    public function regions(): HasMany
+    public function zonals(): HasMany
     {
-        return $this->hasMany(Region::class);
+        return $this->hasMany(Zonal::class);
     }
 
     public function branches(): HasMany

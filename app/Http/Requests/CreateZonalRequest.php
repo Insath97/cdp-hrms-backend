@@ -26,7 +26,7 @@ class CreateZonalRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'code' => 'required|string|unique:zonals,code|max:10',
-            'region_id' => 'required|exists:regions,id',
+            'province_id' => 'required|exists:provinces,id',
             'is_active' => 'sometimes|boolean',
         ];
     }

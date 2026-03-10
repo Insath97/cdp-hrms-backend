@@ -14,7 +14,7 @@ class Zonal extends Model
     protected $fillable = [
         'name',
         'code',
-        'region_id',
+        'province_id',
         'is_active'
     ];
 
@@ -22,9 +22,14 @@ class Zonal extends Model
         'is_active' => 'boolean',
     ];
 
-    public function region(): BelongsTo
+    public function province(): BelongsTo
     {
-        return $this->belongsTo(Region::class);
+        return $this->belongsTo(Province::class);
+    }
+
+    public function regions(): HasMany
+    {
+        return $this->hasMany(Region::class);
     }
 
     public function branches(): HasMany
