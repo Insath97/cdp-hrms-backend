@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Region extends Model
 {
@@ -29,6 +30,21 @@ class Region extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    public function zonals(): HasMany
+    {
+        return $this->hasMany(Zonal::class);
+    }
+
+    public function branches(): HasMany
+    {
+        return $this->hasMany(Branch::class);
+    }
+
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
     }
 
     public function scopeSearch($query, $search)

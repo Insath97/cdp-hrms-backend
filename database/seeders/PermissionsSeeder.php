@@ -71,7 +71,13 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Designation Update', 'group_name' => 'Employee Management Permissions'],
             ['name' => 'Designation Delete', 'group_name' => 'Employee Management Permissions'],
             ['name' => 'Designation Toggle Status', 'group_name' => 'Employee Management Permissions'],
-        ];
+
+            ['name' => 'Department Index', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Department Create', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Department Update', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Department Delete', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Department Toggle Status', 'group_name' => 'Employee Management Permissions'],
+    ];
 
         foreach ($permissions as $permission) {
             Permission::firstOrCreate([

@@ -288,6 +288,7 @@ class RegionController extends Controller implements HasMiddleware
             }
 
             $regions = $query->select('id', 'name', 'code', 'province_id')
+                ->with('province:id,name')
                 ->orderBy('name', 'asc')
                 ->get();
 

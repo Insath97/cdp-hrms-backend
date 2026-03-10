@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Province extends Model
 {
@@ -18,6 +19,20 @@ class Province extends Model
     protected $casts = [
         'is_active' => 'boolean',
     ];
+
+    public function regions(): HasMany
+    {
+        return $this->hasMany(Region::class);
+    }
+
+    public function branches(): HasMany
+    {
+        return $this->hasMany(Branch::class);
+    }
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
+    }
 
     public function scopeActive($query)
     {

@@ -288,6 +288,7 @@ class ZonalController extends Controller implements HasMiddleware
             }
 
             $zonals = $query->select('id', 'name', 'code', 'region_id')
+                ->with('region:id,name')
                 ->orderBy('name', 'asc')
                 ->get();
 

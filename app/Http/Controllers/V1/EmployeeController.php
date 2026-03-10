@@ -30,7 +30,7 @@ class EmployeeController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = Employee::with(['department', 'designation', 'branch', 'reportingManager']);
+            $query = Employee::with(['department', 'designation', 'branch', 'reportingManager', 'zonal', 'region', 'province']);
 
             if ($request->has('search')) {
                 $query->search($request->search);
@@ -486,7 +486,8 @@ class EmployeeController extends Controller implements HasMiddleware
                 $query->where('branch_id', $request->branch_id);
             }
 
-            $employees = $query->select('id', 'full_name', 'employee_code')
+            $employees = $query->select('id', 'full_name', 'employee_code', 'branch_id', 'department_id')
+                ->with(['branch:id,name', 'department:id,name'])
                 ->orderBy('full_name', 'asc')
                 ->get();
 
