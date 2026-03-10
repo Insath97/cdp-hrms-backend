@@ -9,6 +9,7 @@ use App\Http\Controllers\V1\EmployeeController;
 use App\Http\Controllers\V1\ProvinceController;
 use App\Http\Controllers\V1\RegionController;
 use App\Http\Controllers\V1\ZonalController;
+use App\Http\Controllers\V1\BranchController;
 use Illuminate\Support\Facades\Route;
 
 /* public routes */
@@ -40,6 +41,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('zonals/list', [ZonalController::class, 'getZonalList']);
     Route::patch('zonals/{id}/toggle-status', [ZonalController::class, 'toggleStatus']);
     Route::apiResource('zonals', ZonalController::class);
+
+    Route::get('branches/list', [BranchController::class, 'getBranchList']);
+    Route::patch('branches/{id}/toggle-status', [BranchController::class, 'toggleStatus']);
+    Route::apiResource('branches', BranchController::class);
 
     Route::patch('departments/{id}/toggle-status', [DepartmentController::class, 'toggleStatus']);
     Route::get('departments/list', [DepartmentController::class, 'getDepartmentList']);

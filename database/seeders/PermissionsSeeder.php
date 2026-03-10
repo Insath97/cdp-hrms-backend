@@ -57,6 +57,12 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Zonal Update', 'group_name' => 'Region Management Permissions'],
             ['name' => 'Zonal Delete', 'group_name' => 'Region Management Permissions'],
             ['name' => 'Zonal Toggle Status', 'group_name' => 'Region Management Permissions'],
+
+            ['name' => 'Branch Index', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Branch Create', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Branch Update', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Branch Delete', 'group_name' => 'Region Management Permissions'],
+            ['name' => 'Branch Toggle Status', 'group_name' => 'Region Management Permissions'],
         ];
 
         foreach ($permissions as $permission) {
