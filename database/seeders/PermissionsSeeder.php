@@ -38,6 +38,8 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Employee Update', 'group_name' => 'Employee Management Permissions'],
             ['name' => 'Employee Delete', 'group_name' => 'Employee Management Permissions'],
             ['name' => 'Employee Restore', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Make Permanent', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Terminate', 'group_name' => 'Employee Management Permissions'],
             ['name' => 'Employee Toggle Status', 'group_name' => 'Employee Management Permissions'],
 
             ['name' => 'Province Index', 'group_name' => 'Region Management Permissions'],

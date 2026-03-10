@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -18,7 +17,16 @@ return new class extends Migration
             $table->string('full_name');
             $table->string('name_with_initials');
             $table->string('employee_code')->unique();
-            $table->foreignId('department_id')->nullable()->constrained('departments')->onDelete('set null');
+
+            $table->foreignId('reporting_manager_id')->nullable()->constrained('employees')->nullOnDelete();
+
+            $table->foreignId('province_id')->nullable()->constrained('provinces')->onDelete('set null');
+            $table->foreignId('region_id')->nullable()->constrained('regions')->onDelete('set null');
+            $table->foreignId('zonal_id')->nullable()->constrained('zonals')->onDelete('set null');
+
+            $table->foreignId('branch_id')->nullable()->constrained('branches')->onDelete('set null');
+            $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
+            $table->foreignId('designation_id')->nullable()->constrained('designations')->cascadeOnDelete();
 
             $table->enum('employee_type', ['permanent', 'contract', 'internship', 'probation'])->default('permanent');
 
@@ -48,7 +56,6 @@ return new class extends Migration
             $table->text('termination_reason')->nullable();
             $table->timestamp('permanent_at')->nullable();
             $table->enum('employment_status', ['active', 'inactive', 'terminated'])->default('active');
-            $table->string('designation');
             $table->decimal('basic_salary', 10, 2)->default(0);
             $table->text('description')->nullable();
 

@@ -9,7 +9,6 @@ use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
-
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
@@ -18,7 +17,7 @@ class EmployeeController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Employee Index', only: ['index', 'show']),
+            new Middleware('permission:Employee Index', only: ['index', 'show', 'getEmployeeList']),
             new Middleware('permission:Employee Create', only: ['store']),
             new Middleware('permission:Employee Update', only: ['update', 'makePermanent', 'terminate']),
             new Middleware('permission:Employee Delete', only: ['destroy', 'forceDelete']),
@@ -31,7 +30,7 @@ class EmployeeController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = Employee::with(['department']);
+            $query = Employee::with(['department', 'designation', 'branch', 'reportingManager']);
 
             if ($request->has('search')) {
                 $query->search($request->search);
@@ -41,15 +40,27 @@ class EmployeeController extends Controller implements HasMiddleware
                 $query->where('department_id', $request->department_id);
             }
 
+            if ($request->has('designation_id')) {
+                $query->where('designation_id', $request->designation_id);
+            }
+
+            if ($request->has('branch_id')) {
+                $query->where('branch_id', $request->branch_id);
+            }
+
             if ($request->has('is_active')) {
                 $query->where('is_active', $request->boolean('is_active'));
+            }
+
+            if ($request->has('employment_status')) {
+                $query->where('employment_status', $request->employment_status);
             }
 
             $employees = $query->paginate($perPage);
 
             Log::info('Employees index accessed', [
                 'user_id' => Auth::id(),
-                'filters' => $request->only(['search', 'department_id', 'is_active', 'per_page']),
+                'filters' => $request->only(['search', 'department_id', 'designation_id', 'branch_id', 'is_active', 'employment_status', 'per_page']),
                 'count' => $employees->count()
             ]);
 
@@ -76,12 +87,17 @@ class EmployeeController extends Controller implements HasMiddleware
     {
         try {
             $data = $request->validated();
+
+            if (empty($data['employee_code'])) {
+                $data['employee_code'] = Employee::generateNextEmployeeCode();
+            }
+
             $employee = Employee::create($data);
 
             Log::info('Employee created', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
-                'employee_name' => $employee->full_name
+                'employee_code' => $employee->employee_code
             ]);
 
             return response()->json([
@@ -106,7 +122,16 @@ class EmployeeController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $employee = Employee::with(['department', 'leadsDepartment'])->find($id);
+            $employee = Employee::with([
+                'department',
+                'designation',
+                'branch',
+                'zonal',
+                'region',
+                'province',
+                'reportingManager',
+                'subordinates'
+            ])->find($id);
 
             if (!$employee) {
                 return response()->json([
@@ -191,12 +216,7 @@ class EmployeeController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            // Check if user is Super Admin
             if (!Auth::user()->hasRole('Super Admin')) {
-                Log::warning('Unauthorized employee deletion attempt', [
-                    'user_id' => Auth::id(),
-                    'employee_id' => $id
-                ]);
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Only Super Admin can delete employees'
@@ -208,7 +228,7 @@ class EmployeeController extends Controller implements HasMiddleware
             Log::info('Employee deleted', [
                 'user_id' => Auth::id(),
                 'employee_id' => $id,
-                'employee_name' => $employee->full_name
+                'employee_code' => $employee->employee_code
             ]);
 
             return response()->json([
@@ -271,6 +291,7 @@ class EmployeeController extends Controller implements HasMiddleware
             ], 500);
         }
     }
+
     public function makePermanent(string $id)
     {
         try {
@@ -285,7 +306,9 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employee->update([
                 'employee_type' => 'permanent',
-                'permanent_at' => now()
+                'permanent_at' => now(),
+                'employment_status' => 'active',
+                'is_active' => true
             ]);
 
             Log::info('Employee made permanent', [
@@ -418,7 +441,6 @@ class EmployeeController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            // Check if user is Super Admin
             if (!Auth::user()->hasRole('Super Admin')) {
                 return response()->json([
                     'status' => 'error',
@@ -451,11 +473,20 @@ class EmployeeController extends Controller implements HasMiddleware
         }
     }
 
-    public function getEmployeeList()
+    public function getEmployeeList(Request $request)
     {
         try {
-            $employees = Employee::active()
-                ->select('id', 'full_name', 'employee_id')
+            $query = Employee::active();
+
+            if ($request->has('department_id')) {
+                $query->where('department_id', $request->department_id);
+            }
+
+            if ($request->has('branch_id')) {
+                $query->where('branch_id', $request->branch_id);
+            }
+
+            $employees = $query->select('id', 'full_name', 'employee_code')
                 ->orderBy('full_name', 'asc')
                 ->get();
 
