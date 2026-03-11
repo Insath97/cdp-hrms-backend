@@ -36,7 +36,6 @@ return new class extends Migration {
             $table->date('date_of_birth');
 
             $table->string('email')->unique();
-            $table->string('phone')->nullable();
 
             $table->string('address_line_1')->nullable();
             $table->string('city')->nullable();
