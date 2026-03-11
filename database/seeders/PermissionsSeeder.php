@@ -66,18 +66,18 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Branch Delete', 'group_name' => 'Region Management Permissions'],
             ['name' => 'Branch Toggle Status', 'group_name' => 'Region Management Permissions'],
 
-            ['name' => 'Designation Index', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Designation Create', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Designation Update', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Designation Delete', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Designation Toggle Status', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Designation Index', 'group_name' => 'Designation Management Permissions'],
+            ['name' => 'Designation Create', 'group_name' => 'Designation Management Permissions'],
+            ['name' => 'Designation Update', 'git group_name' => 'Designation Management Permissions'],
+            ['name' => 'Designation Delete', 'group_name' => 'Designation Management Permissions'],
+            ['name' => 'Designation Toggle Status', 'group_name' => 'Designation Management Permissions'],
 
-            ['name' => 'Department Index', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Department Create', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Department Update', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Department Delete', 'group_name' => 'Employee Management Permissions'],
-            ['name' => 'Department Toggle Status', 'group_name' => 'Employee Management Permissions'],
-    ];
+            ['name' => 'Department Index', 'group_name' => 'Department Management Permissions'],
+            ['name' => 'Department Create', 'group_name' => 'Department Management Permissions'],
+            ['name' => 'Department Update', 'group_name' => 'Department Management Permissions'],
+            ['name' => 'Department Delete', 'group_name' => 'Department Management Permissions'],
+            ['name' => 'Department Toggle Status', 'group_name' => 'Department Management Permissions'],
+        ];
 
         foreach ($permissions as $permission) {
             Permission::firstOrCreate([
