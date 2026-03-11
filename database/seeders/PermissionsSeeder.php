@@ -68,7 +68,7 @@ class PermissionsSeeder extends Seeder
 
             ['name' => 'Designation Index', 'group_name' => 'Designation Management Permissions'],
             ['name' => 'Designation Create', 'group_name' => 'Designation Management Permissions'],
-            ['name' => 'Designation Update', 'git group_name' => 'Designation Management Permissions'],
+            ['name' => 'Designation Update', 'group_name' => 'Designation Management Permissions'],
             ['name' => 'Designation Delete', 'group_name' => 'Designation Management Permissions'],
             ['name' => 'Designation Toggle Status', 'group_name' => 'Designation Management Permissions'],
 
