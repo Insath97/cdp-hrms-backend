@@ -4,11 +4,10 @@ namespace App\Models;
 
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements JWTSubject, MustVerifyEmail
@@ -21,6 +20,7 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
      * @var list<string>
      */
     protected $fillable = [
+        'employee_id',
         'name',
         'username',
         'email',
@@ -79,7 +79,7 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     }
 
     /* Relationships */
-    public function employee()
+    public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
     }
@@ -89,13 +89,10 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     {
         $canLogin = $this->is_active && $this->can_login;
 
-        if ($this->employee_id && $this->relationLoaded('employee')) {
-            return $canLogin && $this->employee && $this->employee->is_active;
-        }
-
-        // If not loaded, check existence
         if ($this->employee_id) {
-            return $canLogin && $this->load('employee')->employee->is_active;
+            // Load employee if not loaded and check status
+            $employee = $this->relationLoaded('employee') ? $this->employee : $this->load('employee')->employee;
+            return $canLogin && $employee && $employee->is_active;
         }
 
         return $canLogin;
@@ -127,18 +124,6 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     /**
      * Mark the user's email as verified
      */
-    public function markEmailAsVerifiedcheck(string $token)
-    {
-        $this->update([
-            'email_verified_at' => now(),
-            'email_verification_token' => $token,
-            'email_verification_token_expires_at' => null
-        ]);
-    }
-
-    /**
-     * Mark the user's email as verified without a token
-     */
     public function markEmailAsVerified()
     {
         $this->update([
@@ -149,43 +134,10 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     }
 
     /**
-     * Check if the user's email verification token is valid
-     */
-    public function isEmailVerificationTokenValid(string $token): bool
-    {
-        if ($this->email_verification_token !== $token) {
-            return false;
-        }
-
-        if (!$this->email_verification_token_expires_at) {
-            return false;
-        }
-
-        return now()->lessThan($this->email_verification_token_expires_at);
-    }
-
-    /**
-     * Get all direct and indirect subordinate IDs (descendants).
-     */
-    public function getAllDescendantIds(): array
-    {
-        $descendants = [];
-        $children = User::where('parent_user_id', $this->id)->get();
-
-        foreach ($children as $child) {
-            $descendants[] = $child->id;
-            $descendants = array_merge($descendants, $child->getAllDescendantIds());
-        }
-
-        return $descendants;
-    }
-
-    /**
      * Check if the user has verified their email
      */
     public function hasVerifiedEmail(): bool
     {
         return !is_null($this->email_verified_at);
     }
-
 }

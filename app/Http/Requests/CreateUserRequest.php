@@ -5,7 +5,6 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Validation\Rule;
 
 class CreateUserRequest extends FormRequest
 {
@@ -29,20 +28,13 @@ class CreateUserRequest extends FormRequest
             'username' => 'required|string|max:255|unique:users,username',
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:8',
-            'user_type' => 'required|in:admin,hierarchy,customer',
+            'user_type' => 'required|in:admin,staff',
             'role' => 'required|string|exists:roles,name',
 
-            // Hierarchy specific validation
-            'level_id' => 'required_if:user_type,hierarchy|nullable|exists:levels,id',
-            'parent_user_id' => 'nullable|exists:users,id',
+            // Staff specific validation
+            'employee_id' => 'required_if:user_type,staff|nullable|exists:employees,id',
 
-            // Location fields (required based on business logic, but nullable in DB)
-            'branch_id' => 'nullable|exists:branches,id',
-            'zone_id' => 'nullable|exists:zones,id',
-            'region_id' => 'nullable|exists:regions,id',
-            'province_id' => 'nullable|exists:provinces,id',
-
-            'profile_image' => 'nullable|string',
+            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'is_active' => 'sometimes|boolean',
             'can_login' => 'sometimes|boolean',
         ];

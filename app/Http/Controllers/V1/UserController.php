@@ -13,10 +13,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
-use Spatie\Permission\Models\Role;
 
 class UserController extends Controller implements HasMiddleware
 {
@@ -37,12 +35,12 @@ class UserController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = User::with(['level', 'branch', 'parent', 'roles']);
+            $query = User::with(['employee', 'roles']);
 
             if ($request->has('search')) {
                 $search = $request->search;
-                $query->where(function (Builder $builder) use ($search) {
-                    $builder->where('name', 'like', "%{$search}%")
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
                         ->orWhere('email', 'like', "%{$search}%")
                         ->orWhere('username', 'like', "%{$search}%");
                 });
@@ -59,16 +57,8 @@ class UserController extends Controller implements HasMiddleware
                 });
             }
 
-            if ($request->has('level_id')) {
-                $query->where('level_id', $request->level_id);
-            }
-
-            if ($request->has('branch_id')) {
-                $query->where('branch_id', $request->branch_id);
-            }
-
             if ($request->has('is_active')) {
-                $request->boolean('is_active') ? $query->where('is_active', true) : $query->where('is_active', false);
+                $query->where('is_active', $request->boolean('is_active'));
             }
 
             $users = $query->paginate($perPage);
@@ -86,7 +76,7 @@ class UserController extends Controller implements HasMiddleware
 
             Log::info('Users index accessed', [
                 'user_id' => Auth::id(),
-                'filters' => $request->only(['search', 'user_type', 'level_id', 'branch_id', 'is_active', 'role']),
+                'filters' => $request->only(['search', 'user_type', 'is_active', 'role']),
                 'count' => $users->count()
             ]);
 
@@ -96,6 +86,7 @@ class UserController extends Controller implements HasMiddleware
                 'data' => $users
             ], 200);
         } catch (\Throwable $th) {
+            Log::error('Failed to retrieve users: ' . $th->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve users',
@@ -110,22 +101,16 @@ class UserController extends Controller implements HasMiddleware
             $currentUser = auth("api")->user();
             $data = $request->validated();
 
-            // Hash password
             $rawPassword = $data['password'];
             $data['password'] = Hash::make($rawPassword);
 
-            // For admin users, ensure hierarchy fields are null/ignored if sent
+            // Business Logic: Admin users don't need employees
             if ($data['user_type'] === 'admin') {
-                $data['level_id'] = null;
-                $data['parent_user_id'] = null;
-                $data['branch_id'] = null;
-                $data['zone_id'] = null;
-                $data['region_id'] = null;
-                $data['province_id'] = null;
+                $data['employee_id'] = null;
             }
 
-            // Handle Profile Image
-            $imagePath = $this->handleFileUpload($request, 'profile_image', null, 'users/profile', $data['email']);
+            // Handle Profile Image using trait
+            $imagePath = $this->handleFileUpload($request, 'profile_image', null, 'users/profile', $data['username']);
             if ($imagePath) {
                 $data['profile_image'] = $imagePath;
             }
@@ -137,58 +122,19 @@ class UserController extends Controller implements HasMiddleware
                 $user->assignRole($data['role']);
             }
 
-            // Send Email
+            // Send Welcome Email
             try {
-                // Load relationships for enriched email data
-                $user->load(['parent', 'level', 'branch', 'zone', 'region', 'province']);
-
-                // Prepare email data - ONLY include existing data, no N/A
                 $emailData = [
-                    'user' => [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'username' => $user->username,
-                        'email' => $user->email,
-                        'user_type' => $user->user_type,
-                        'email_verified_at' => $user->email_verified_at,
-                    ],
+                    'user' => $user->toArray(),
                     'password' => $rawPassword,
                     'role' => $data['role'] ?? null,
                     'created_by' => $currentUser ? $currentUser->name : 'System',
                     'login_url' => config('app.frontend_url') ?? config('app.url'),
                 ];
 
-                // Only add relationships if they exist
-                if ($user->parent) {
-                    $emailData['parent_name'] = $user->parent->name;
-                }
-
-                if ($user->level) {
-                    $emailData['level_name'] = $user->level->name;
-                }
-
-                if ($user->branch) {
-                    $emailData['branch_name'] = $user->branch->name;
-                }
-
-                if ($user->zone) {
-                    $emailData['zone_name'] = $user->zone->name;
-                }
-
-                if ($user->region) {
-                    $emailData['region_name'] = $user->region->name;
-                }
-
-                if ($user->province) {
-                    $emailData['province_name'] = $user->province->name;
-                }
-
                 Mail::to($user->email)->send(new UserCreateMail($emailData));
 
-                Log::info('User creation email sent', [
-                    'user_id' => $user->id,
-                    'user_type' => $user->user_type
-                ]);
+                Log::info('User creation email sent', ['user_id' => $user->id]);
             } catch (\Throwable $th) {
                 Log::error('Failed to send user creation email: ' . $th->getMessage());
             }
@@ -196,7 +142,8 @@ class UserController extends Controller implements HasMiddleware
             $user->load([
                 'roles' => function ($q) {
                     $q->select('id', 'name');
-                }
+                },
+                'employee'
             ]);
 
             Log::info('User created', [
@@ -218,6 +165,7 @@ class UserController extends Controller implements HasMiddleware
                 'data' => $userData
             ], 201);
         } catch (\Throwable $th) {
+            Log::error('Failed to create user: ' . $th->getMessage());
             if (isset($imagePath)) {
                 $this->deleteFile($imagePath);
             }
@@ -233,7 +181,7 @@ class UserController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $user = User::with(['level', 'branch', 'zone', 'region', 'province', 'parent', 'children', 'roles'])->find($id);
+            $user = User::with(['employee', 'roles'])->find($id);
 
             if (!$user) {
                 return response()->json([
@@ -260,6 +208,7 @@ class UserController extends Controller implements HasMiddleware
                 'data' => $userData
             ], 200);
         } catch (\Throwable $th) {
+            Log::error('Failed to retrieve user: ' . $th->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve user',
@@ -288,18 +237,13 @@ class UserController extends Controller implements HasMiddleware
                 unset($data['password']);
             }
 
-            // Logic to clear hierarchy fields if switching to admin
+            // Business Logic: Admin users don't need employees
             if (isset($data['user_type']) && $data['user_type'] === 'admin') {
-                $data['level_id'] = null;
-                $data['parent_user_id'] = null;
-                $data['branch_id'] = null;
-                $data['zone_id'] = null;
-                $data['region_id'] = null;
-                $data['province_id'] = null;
+                $data['employee_id'] = null;
             }
 
-            // Handle Image Upload
-            $imagePath = $this->handleFileUpload($request, 'profile_image', $user->profile_image, 'users/profile', $user->email);
+            // Handle Image Upload using trait
+            $imagePath = $this->handleFileUpload($request, 'profile_image', $user->profile_image, 'users/profile', $user->username);
             if ($imagePath) {
                 $data['profile_image'] = $imagePath;
             }
@@ -314,7 +258,8 @@ class UserController extends Controller implements HasMiddleware
             $user->load([
                 'roles' => function ($q) {
                     $q->select('id', 'name');
-                }
+                },
+                'employee'
             ]);
 
             Log::info('User updated', [
@@ -336,6 +281,7 @@ class UserController extends Controller implements HasMiddleware
                 'data' => $userData
             ], 200);
         } catch (\Throwable $th) {
+            Log::error('Failed to update user: ' . $th->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to update user',
@@ -356,7 +302,6 @@ class UserController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            // Check if user is Super Admin
             if (!Auth::user()->hasRole('Super Admin')) {
                 Log::warning('Unauthorized user deletion attempt', [
                     'user_id' => Auth::id(),
@@ -368,7 +313,6 @@ class UserController extends Controller implements HasMiddleware
                 ], 403);
             }
 
-            // Prevent self-deletion
             if ($user->id === Auth::id()) {
                 return response()->json([
                     'status' => 'error',
@@ -389,6 +333,7 @@ class UserController extends Controller implements HasMiddleware
                 'message' => 'User deleted successfully'
             ], 200);
         } catch (\Throwable $th) {
+            Log::error('Failed to delete user: ' . $th->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to delete user',
@@ -409,7 +354,6 @@ class UserController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            // Prevent self-deactivation
             if ($user->id === Auth::id()) {
                 return response()->json([
                     'status' => 'error',
@@ -435,6 +379,7 @@ class UserController extends Controller implements HasMiddleware
                 ]
             ], 200);
         } catch (\Throwable $th) {
+            Log::error('Failed to toggle user status: ' . $th->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle user status',

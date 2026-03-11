@@ -5,7 +5,6 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Validation\Rule;
 
 class UpdateUserRequest extends FormRequest
 {
@@ -30,26 +29,16 @@ class UpdateUserRequest extends FormRequest
             'username' => 'sometimes|string|max:255|unique:users,username,' . $id,
             'email' => 'sometimes|email|max:255|unique:users,email,' . $id,
             'password' => 'sometimes|string|min:8',
-            'user_type' => 'sometimes|in:admin,hierarchy,customer',
+            'user_type' => 'sometimes|in:admin,staff',
             'role' => 'sometimes|string|exists:roles,name',
 
-            'level_id' => 'required_if:user_type,hierarchy|nullable|exists:levels,id',
-            'parent_user_id' => 'nullable|exists:users,id',
+            // Staff specific validation
+            'employee_id' => 'required_if:user_type,staff|nullable|exists:employees,id',
 
-            'branch_id' => 'nullable|exists:branches,id',
-            'zone_id' => 'nullable|exists:zones,id',
-            'region_id' => 'nullable|exists:regions,id',
-            'province_id' => 'nullable|exists:provinces,id',
-
-            'profile_image' => 'nullable|string',
+            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'is_active' => 'sometimes|boolean',
             'can_login' => 'sometimes|boolean',
         ];
-    }
-
-    public function bodyParameters()
-    {
-        return [];
     }
 
     protected function failedValidation(Validator $validator)
