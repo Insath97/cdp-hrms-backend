@@ -11,6 +11,7 @@ use App\Http\Controllers\V1\RegionController;
 use App\Http\Controllers\V1\ZonalController;
 use App\Http\Controllers\V1\BranchController;
 use App\Http\Controllers\V1\DesignationController;
+use App\Http\Controllers\V1\LeaveTypeController;
 use Illuminate\Support\Facades\Route;
 
 /* public routes */
@@ -54,6 +55,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::patch('departments/{id}/toggle-status', [DepartmentController::class, 'toggleStatus']);
     Route::get('departments/list', [DepartmentController::class, 'getDepartmentList']);
     Route::apiResource('departments', DepartmentController::class);
+
+    Route::get('leave-types/list', [LeaveTypeController::class, 'getLeaveTypeList']);
+    Route::patch('leave-types/{id}/toggle-status', [LeaveTypeController::class, 'toggleStatus']);
+    Route::apiResource('leave-types', LeaveTypeController::class);
 
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);

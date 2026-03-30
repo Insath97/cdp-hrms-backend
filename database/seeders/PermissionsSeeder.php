@@ -77,6 +77,12 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Department Update', 'group_name' => 'Department Management Permissions'],
             ['name' => 'Department Delete', 'group_name' => 'Department Management Permissions'],
             ['name' => 'Department Toggle Status', 'group_name' => 'Department Management Permissions'],
+
+            ['name' => 'LeaveType Index', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'LeaveType Create', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'LeaveType Update', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'LeaveType Delete', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'LeaveType Toggle Status', 'group_name' => 'Leave Management Permissions'],
         ];
 
         foreach ($permissions as $permission) {
