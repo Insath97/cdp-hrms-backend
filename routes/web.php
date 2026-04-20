@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Route;
 // Root endpoint
 Route::get('/', function () {
     return response()->json([
-        'message' => 'CDP Connect web application API',
+        'message' => 'HRMS web application API',
         'version' => '1.0.0',
         'health' => '/health-check',
         'baseUrl' => env('APP_URL', 'http://localhost'),

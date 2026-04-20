@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Route;
 
 // Health Check endpoint
 Route::get('/health-check', function () {
-    return response()->json(['message' => 'CDP Connect API is working!']);
+    return response()->json(['message' => 'HRMS API is working!']);
 });
 
 /* version 1 routes */
