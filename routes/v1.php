@@ -12,6 +12,10 @@ use App\Http\Controllers\V1\ZonalController;
 use App\Http\Controllers\V1\BranchController;
 use App\Http\Controllers\V1\DesignationController;
 use App\Http\Controllers\V1\LeaveTypeController;
+use App\Http\Controllers\V1\LeaveController;
+use App\Http\Controllers\V1\LetterController;
+use App\Http\Controllers\V1\AttendanceController;
+use App\Http\Controllers\V1\TableCountController;
 use Illuminate\Support\Facades\Route;
 
 /* public routes */
@@ -25,6 +29,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('me', [AuthController::class, 'me']);
+    // Route::get('table-counts', [TableCountController::class, 'getTableCounts']);
+    // Route::get('table-counts/{tableName}', [TableCountController::class, 'getTableCount']);
+    // Route::get('employee-counts/inactive', [TableCountController::class, 'getInactiveEmployeeCount']);
+    // Route::get('employee-counts/by-type', [TableCountController::class, 'getEmployeeTypeCounts']);
 
     Route::get('permissions/list', [PermissionController::class, 'getPermissionList']);
     Route::apiResource('permissions', PermissionController::class);
@@ -59,6 +67,14 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('leave-types/list', [LeaveTypeController::class, 'getLeaveTypeList']);
     Route::patch('leave-types/{id}/toggle-status', [LeaveTypeController::class, 'toggleStatus']);
     Route::apiResource('leave-types', LeaveTypeController::class);
+
+    Route::post('leaves/{id}/approve', [LeaveController::class, 'approve']);
+    Route::post('leaves/{id}/reject', [LeaveController::class, 'reject']);
+    Route::apiResource('leaves', LeaveController::class);
+
+    Route::apiResource('letters', LetterController::class);
+
+    Route::apiResource('attendances', AttendanceController::class);
 
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);

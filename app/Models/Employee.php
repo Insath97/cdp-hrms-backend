@@ -36,6 +36,7 @@ class Employee extends Model
         'full_name',
         'name_with_initials',
         'employee_code',
+        'profile_image',
         'reporting_manager_id',
         'province_id',
         'region_id',
@@ -66,6 +67,9 @@ class Employee extends Model
         'permanent_at',
         'employment_status',
         'basic_salary',
+        'bank_name',
+        'bank_branch',
+        'account_number',
         'description',
         'is_active'
     ];

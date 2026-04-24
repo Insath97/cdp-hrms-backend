@@ -29,6 +29,7 @@ class CreateEmployeeRequest extends FormRequest
             'full_name' => 'required|string|max:255',
             'name_with_initials' => 'required|string|max:255',
             'employee_code' => 'nullable|sometimes|string|unique:employees,employee_code|max:50',
+            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'reporting_manager_id' => 'nullable|exists:employees,id',
             'province_id' => 'nullable|exists:provinces,id',
             'region_id' => 'nullable|exists:regions,id',
@@ -56,6 +57,9 @@ class CreateEmployeeRequest extends FormRequest
             'joined_at' => 'sometimes|date',
             'employment_status' => 'sometimes|in:active,inactive,terminated',
             'basic_salary' => 'sometimes|numeric|min:0',
+            'bank_name' => 'nullable|string|max:255',
+            'bank_branch' => 'nullable|string|max:255',
+            'account_number' => 'nullable|string|max:50',
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
         ];

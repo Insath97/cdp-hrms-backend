@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateEmployeeRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
 use App\Models\Employee;
+use App\Traits\FileUploadTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class EmployeeController extends Controller implements HasMiddleware
 {
+    use FileUploadTrait;
     public static function middleware(): array
     {
         return [
@@ -90,6 +92,11 @@ class EmployeeController extends Controller implements HasMiddleware
 
             if (empty($data['employee_code'])) {
                 $data['employee_code'] = Employee::generateNextEmployeeCode();
+            }
+
+            // Handle profile image upload
+            if ($request->hasFile('profile_image')) {
+                $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', null, 'employees', $data['employee_code'] . '_profile');
             }
 
             $employee = Employee::create($data);
@@ -177,6 +184,12 @@ class EmployeeController extends Controller implements HasMiddleware
             }
 
             $data = $request->validated();
+
+            // Handle profile image upload
+            if ($request->hasFile('profile_image')) {
+                $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', $employee->profile_image, 'employees', $employee->employee_code . '_profile');
+            }
+
             $employee->update($data);
 
             Log::info('Employee updated', [

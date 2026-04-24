@@ -83,6 +83,24 @@ class PermissionsSeeder extends Seeder
             ['name' => 'LeaveType Update', 'group_name' => 'Leave Management Permissions'],
             ['name' => 'LeaveType Delete', 'group_name' => 'Leave Management Permissions'],
             ['name' => 'LeaveType Toggle Status', 'group_name' => 'Leave Management Permissions'],
+
+            ['name' => 'Leave Index', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'Leave Create', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'Leave Update', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'Leave Delete', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'Leave Approve', 'group_name' => 'Leave Management Permissions'],
+            ['name' => 'Leave Reject', 'group_name' => 'Leave Management Permissions'],
+
+            ['name' => 'Letter Index', 'group_name' => 'Letter Management Permissions'],
+            ['name' => 'Letter Create', 'group_name' => 'Letter Management Permissions'],
+            ['name' => 'Letter Update', 'group_name' => 'Letter Management Permissions'],
+            ['name' => 'Letter Delete', 'group_name' => 'Letter Management Permissions'],
+            ['name' => 'Letter Toggle Status', 'group_name' => 'Letter Management Permissions'],
+
+            ['name' => 'Attendance Index', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance Create', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance Update', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance Delete', 'group_name' => 'Attendance Management Permissions'],
         ];
 
         foreach ($permissions as $permission) {

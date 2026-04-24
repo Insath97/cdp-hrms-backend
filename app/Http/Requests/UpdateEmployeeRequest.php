@@ -30,6 +30,7 @@ class UpdateEmployeeRequest extends FormRequest
             'full_name' => 'sometimes|string|max:255',
             'name_with_initials' => 'sometimes|string|max:255',
             'employee_code' => 'sometimes|string|max:50|unique:employees,employee_code,' . $id,
+            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'reporting_manager_id' => 'nullable|exists:employees,id',
             'province_id' => 'nullable|exists:provinces,id',
             'region_id' => 'nullable|exists:regions,id',
@@ -60,6 +61,9 @@ class UpdateEmployeeRequest extends FormRequest
             'permanent_at' => 'nullable|date',
             'employment_status' => 'sometimes|in:active,inactive,terminated',
             'basic_salary' => 'sometimes|numeric|min:0',
+            'bank_name' => 'nullable|string|max:255',
+            'bank_branch' => 'nullable|string|max:255',
+            'account_number' => 'nullable|string|max:50',
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
         ];
