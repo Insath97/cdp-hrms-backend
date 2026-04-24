@@ -76,6 +76,8 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::apiResource('attendances', AttendanceController::class);
 
+    Route::post('attendances/clock-out', [AttendanceController::class, 'clockOut']);
+
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);
     Route::delete('employees/{employee}/force-delete', [EmployeeController::class, 'forceDelete']);

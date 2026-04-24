@@ -50,7 +50,7 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->dateRange($request->from_date, $request->to_date);
             }
 
-            $attendances = $query->with('employee', 'user')->paginate($perPage);
+            $attendances = $query->with(['employee', 'user.employee'])->paginate($perPage);
 
             Log::info('Attendances index accessed', [
                 'user_id' => Auth::id(),
@@ -112,7 +112,7 @@ class AttendanceController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Attendance created successfully',
-                'data' => $attendance->load('employee', 'user')
+                'data' => $attendance->load(['employee', 'user.employee'])
             ], 201);
         } catch (\Throwable $th) {
             Log::error('Failed to create attendance', [
@@ -150,7 +150,7 @@ class AttendanceController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Attendance retrieved successfully',
-                'data' => $attendance->load('employee', 'user')
+                'data' => $attendance->load(['employee', 'user.employee'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to retrieve attendance', [
@@ -237,7 +237,7 @@ class AttendanceController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Attendance updated successfully',
-                'data' => $attendance->load('employee', 'user')
+                'data' => $attendance->load(['employee', 'user.employee'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to update attendance', [
