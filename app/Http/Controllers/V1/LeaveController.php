@@ -30,7 +30,7 @@ class LeaveController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = Leave::with(['employee', 'leaveType', 'approvedBy', 'rejectedBy']);
+            $query = Leave::with(['employee', 'leaveType', 'approvedBy', 'rejectedBy', 'user']);
 
             if ($request->has('employee_id')) {
                 $query->where('employee_id', $request->employee_id);
@@ -81,6 +81,7 @@ class LeaveController extends Controller implements HasMiddleware
     {
         try {
             $data = $request->validated();
+            $data['user_id'] = $data['user_id'] ?? Auth::id();
             $leave = Leave::create($data);
 
             Log::info('Leave request created', [
@@ -94,7 +95,7 @@ class LeaveController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Leave request created successfully',
-                'data' => $leave->load(['employee', 'leaveType'])
+                'data' => $leave->load(['employee', 'leaveType', 'user'])
             ], 201);
         } catch (\Throwable $th) {
             Log::error('Failed to create leave request', [
@@ -113,7 +114,7 @@ class LeaveController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $leave = Leave::with(['employee', 'leaveType', 'approvedBy', 'rejectedBy'])->find($id);
+            $leave = Leave::with(['employee', 'leaveType', 'approvedBy', 'rejectedBy', 'user'])->find($id);
 
             if (!$leave) {
                 return response()->json([
@@ -177,7 +178,7 @@ class LeaveController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Leave request updated successfully',
-                'data' => $leave->load(['employee', 'leaveType'])
+                'data' => $leave->load(['employee', 'leaveType', 'user'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to update leave request', [
@@ -271,7 +272,7 @@ class LeaveController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Leave request approved successfully',
-                'data' => $leave->load(['employee', 'leaveType', 'approvedBy'])
+                'data' => $leave->load(['employee', 'leaveType', 'approvedBy', 'user'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to approve leave request', [
@@ -327,7 +328,7 @@ class LeaveController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Leave request rejected successfully',
-                'data' => $leave->load(['employee', 'leaveType', 'rejectedBy'])
+                'data' => $leave->load(['employee', 'leaveType', 'rejectedBy', 'user'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to reject leave request', [

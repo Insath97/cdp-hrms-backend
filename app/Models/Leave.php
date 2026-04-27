@@ -9,6 +9,7 @@ class Leave extends Model
 {
     protected $fillable = [
         'employee_id',
+        'user_id',
         'leave_type_id',
         'from_date',
         'to_date',
@@ -37,6 +38,11 @@ class Leave extends Model
     public function leaveType(): BelongsTo
     {
         return $this->belongsTo(LeaveType::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function approvedBy(): BelongsTo

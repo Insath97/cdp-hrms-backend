@@ -101,6 +101,7 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Attendance Create', 'group_name' => 'Attendance Management Permissions'],
             ['name' => 'Attendance Update', 'group_name' => 'Attendance Management Permissions'],
             ['name' => 'Attendance Delete', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance Report', 'group_name' => 'Attendance Management Permissions'],
         ];
 
         foreach ($permissions as $permission) {

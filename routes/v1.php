@@ -74,10 +74,17 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::apiResource('letters', LetterController::class);
 
+    Route::prefix('attendances')->group(function () {
+        Route::get('report', [AttendanceController::class, 'report']);
+        Route::get('report/daily', [AttendanceController::class, 'dailyReport']);
+        Route::get('report/weekly', [AttendanceController::class, 'weeklyReport']);
+        Route::get('report/monthly', [AttendanceController::class, 'monthlyReport']);
+        Route::post('clock-out', [AttendanceController::class, 'clockOut']);
+    });
+    Route::get('attendance/test', [AttendanceController::class, 'test']);
     Route::apiResource('attendances', AttendanceController::class);
 
-    Route::post('attendances/clock-out', [AttendanceController::class, 'clockOut']);
-
+    
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);
     Route::delete('employees/{employee}/force-delete', [EmployeeController::class, 'forceDelete']);

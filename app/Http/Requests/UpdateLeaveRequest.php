@@ -24,6 +24,7 @@ class UpdateLeaveRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'employee_id' => 'sometimes|nullable|exists:employees,id',
             'leave_type_id' => 'sometimes|exists:leave_types,id',
             'from_date' => 'sometimes|date|after_or_equal:today',
             'to_date' => 'sometimes|date|after_or_equal:from_date',
