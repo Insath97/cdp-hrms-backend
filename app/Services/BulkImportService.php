@@ -103,7 +103,7 @@ class BulkImportService
                     'address_line1', 'city', 'state', 'country', 'postal_code', 'phone_primary', 'phone_secondary', 
                     'have_whatsapp', 'whatsapp_number', 'start_date', 'end_date', 'joined_at', 'left_at', 
                     'termination_reason', 'permanent_at', 'employment_status', 'basic_salary', 'bank_name', 
-                    'bank_branch', 'accout_number', 'description', 'is_active'
+                    'bank_branch', 'account_number', 'description', 'is_active'
                 ],
             ],
         ];
