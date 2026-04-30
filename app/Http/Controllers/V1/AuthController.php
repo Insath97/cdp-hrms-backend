@@ -138,14 +138,10 @@ class AuthController extends Controller
     {
         try {
             $user = auth('api')->user();
-
-            $user->load(['roles' => function ($query) {
-                $query->select('id', 'name')
-                    ->with(['permissions' => function ($query) {
-                        $query->select('id', 'name');
-                    }]);
-            }]);
-
+            
+            $user->load(['employee', 'roles.permissions']);
+            
+            // Hide pivot tables
             if ($user->relationLoaded('roles')) {
                 $user->roles->each->makeHidden(['pivot']);
                 $user->roles->each(function ($role) {
@@ -154,12 +150,13 @@ class AuthController extends Controller
                     }
                 });
             }
-
+            
             return response()->json([
                 'status' => 'success',
                 'message' => 'User details fetched successfully',
                 'data' => [
-                    'user' => $user
+                    'user' => $user,  // This will now include employee data
+                    // Remove the duplicate 'employee' key
                 ]
             ], 200);
         } catch (\Throwable $th) {

@@ -84,6 +84,16 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         return $this->belongsTo(Employee::class);
     }
 
+    public function payrollRecords()
+    {
+        return $this->hasMany(PayrollRecord::class);
+    }
+
+    public function payslipRequests()
+    {
+        return $this->hasMany(PayslipRequest::class);
+    }
+
     /* Helper Methods */
     public function canLogin(): bool
     {
