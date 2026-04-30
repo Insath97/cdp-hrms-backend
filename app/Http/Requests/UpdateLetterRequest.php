@@ -29,6 +29,7 @@ class UpdateLetterRequest extends FormRequest
             'address_line1' => 'sometimes|string|max:255',
             'address_line2' => 'nullable|string|max:255',
             'city' => 'sometimes|string|max:255',
+            'department_id' => 'sometimes|exists:departments,id',
             'designation_id' => 'sometimes|exists:designations,id',
         ];
     }

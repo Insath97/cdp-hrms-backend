@@ -12,10 +12,10 @@ return new class extends Migration {
     {
         Schema::create('employees', function (Blueprint $table) {
             $table->id();
-            $table->string('f_name');
-            $table->string('l_name');
+            $table->string('f_name')->nullable();
+            $table->string('l_name')->nullable();
             $table->string('full_name');
-            $table->string('name_with_initials');
+            $table->string('name_with_initials')->nullable();
             $table->string('employee_code')->unique();
 
             $table->foreignId('reporting_manager_id')->nullable()->constrained('employees')->nullOnDelete();

@@ -843,17 +843,4 @@ class AttendanceController extends Controller implements HasMiddleware
         
         return $dates;
     }
-
-    /**
-     * Test endpoint to check if controller is working
-     */
-    public function test()
-    {
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Attendance controller is working',
-            'user' => Auth::user() ? Auth::user()->name : 'No user',
-            'permissions' => Auth::user() ? Auth::user()->getAllPermissions()->pluck('name') : []
-        ]);
-    }
 }

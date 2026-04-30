@@ -29,6 +29,7 @@ class CreateLetterRequest extends FormRequest
             'address_line1' => 'required|string|max:255',
             'address_line2' => 'nullable|string|max:255',
             'city' => 'required|string|max:255',
+            'department_id' => 'required|exists:departments,id',
             'designation_id' => 'required|exists:designations,id',
         ];
     }

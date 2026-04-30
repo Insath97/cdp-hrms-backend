@@ -36,6 +36,7 @@ class Letter extends Model
         'address_line1',
         'address_line2',
         'city',
+        'department_id',
         'designation_id',
     ];
 
@@ -43,6 +44,11 @@ class Letter extends Model
     public function designation(): BelongsTo
     {
         return $this->belongsTo(Designation::class);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
     }
 
     public function scopeSearch($query, $search)

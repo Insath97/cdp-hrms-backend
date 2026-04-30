@@ -16,7 +16,13 @@ use App\Http\Controllers\V1\LeaveController;
 use App\Http\Controllers\V1\LetterController;
 use App\Http\Controllers\V1\AttendanceController;
 use App\Http\Controllers\V1\TableCountController;
+use App\Http\Controllers\V1\FingerprintController;
+use App\Http\Controllers\V1\FingerprintWebhookController;
+use App\Http\Controllers\V1\PayrollController;
+use App\Http\Controllers\V1\PayrollAdminController;
+use App\Http\Controllers\V1\ImportController;
 use Illuminate\Support\Facades\Route;
+
 
 /* public routes */
 
@@ -81,7 +87,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('report/monthly', [AttendanceController::class, 'monthlyReport']);
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
     });
-    Route::get('attendance/test', [AttendanceController::class, 'test']);
+    Route::put('attendances', [AttendanceController::class, 'update']);
     Route::apiResource('attendances', AttendanceController::class);
 
     
@@ -95,4 +101,55 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::patch('users/{id}/toggle-status', [UserController::class, 'toggleStatus']);
     Route::apiResource('users', UserController::class);
+
+    // Fingerprint Device Routes
+    Route::prefix('fingerprint')->middleware(['auth:sanctum', 'permission:manage fingerprint'])->group(function () {
+        
+        // Device Management
+        Route::get('/test-connection', [FingerprintController::class, 'testConnection']);
+        Route::get('/device-info', [FingerprintController::class, 'getDeviceInfo']);
+        Route::get('/device-users', [FingerprintController::class, 'getDeviceUsers']);
+        Route::get('/device-statistics', [FingerprintController::class, 'getDeviceStatistics']);
+        
+        // Attendance Logs
+        Route::get('/attendance-logs', [FingerprintController::class, 'getAttendanceLogs']);
+        Route::get('/attendance-today', [FingerprintController::class, 'getTodayAttendance']);
+        
+        // Sync Operations
+        Route::post('/sync-user', [FingerprintController::class, 'syncUserToDevice']);
+        Route::post('/sync-attendance', [FingerprintController::class, 'syncAttendanceToHRMS']);
+        Route::get('/compare-attendance', [FingerprintController::class, 'compareAttendance']);
+        
+        // Fingerprint Management
+        Route::post('/register-fingerprint', [FingerprintController::class, 'registerFingerprint']);
+        Route::delete('/delete-fingerprint', [FingerprintController::class, 'deleteFingerprint']);
+        
+        // Manual Operations
+        Route::post('/manual-attendance', [FingerprintController::class, 'manualAttendance']);
+    });
+
+    // Webhook endpoint (no authentication, device will call this)
+    Route::post('/webhooks/fingerprint', [FingerprintWebhookController::class, 'handleWebhook']);
+
+    
+    // Employee routes
+    Route::middleware(['auth:sanctum'])->group(function () {
+        Route::get('/payroll', [PayrollController::class, 'index']);
+        Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
+        Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
+        Route::get('/payroll/{payrollRecord}/print', [PayrollController::class, 'printPayslip']);
+    });
+
+    // HR Admin routes
+    Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
+        Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
+        Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
+        Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
+        Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
+    });
+
+    //Bulk Import routes
+    Route::get('imports/tables/list', [ImportController::class, 'listTables']);
+    Route::get('imports', [ImportController::class, 'index']);
+    Route::post('imports/{table}', [ImportController::class, 'import']);
 });

@@ -97,6 +97,7 @@ class LetterController extends Controller implements HasMiddleware
                 'address_line1' => $letter->address_line1,
                 'address_line2' => $letter->address_line2,
                 'city' => $letter->city,
+                'department_id' => $letter->department_id,
                 'designation_id' => $letter->designation_id,
             ]);
 
