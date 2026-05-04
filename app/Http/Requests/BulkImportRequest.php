@@ -26,6 +26,7 @@ class BulkImportRequest extends FormRequest
                     'zonals',
                     'regions',
                     'branches',
+                    'departments',
                     'designations',
                     'employees'
                 ])
