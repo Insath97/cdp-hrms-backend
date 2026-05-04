@@ -522,4 +522,75 @@ class EmployeeController extends Controller implements HasMiddleware
             ], 500);
         }
     }
+
+    /**
+    * Public API to verify employee details by employee code
+    * No authentication required
+    */
+    public function verifyByCode(string $employeeCode)
+    {
+        try {
+            // Only return active employees with valid employment status
+            $employee = Employee::with([
+                'department:id,name',
+                'designation:id,name',
+                'branch:id,name',
+                'reportingManager:id,full_name,employee_code'
+            ])
+            ->where('employee_code', $employeeCode)
+            ->where('is_active', true)
+            ->whereNotIn('employment_status', ['terminated', 'resigned'])
+            ->first();
+
+            if (!$employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found or not active'
+                ], 404);
+            }
+
+            // Return only necessary fields for public verification
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employee verified successfully',
+                'data' => [
+                    'id' => $employee->id,
+                    'full_name' => $employee->full_name,
+                    'employee_code' => $employee->employee_code,
+                    'profile_image' => $employee->profile_image,
+                    'email' => $employee->email,
+                    'phone_primary' => $employee->phone_primary,
+                    'joined_at' => $employee->joined_at?->format('Y-m-d'),
+                    'department' => $employee->department ? [
+                        'id' => $employee->department->id,
+                        'name' => $employee->department->name
+                    ] : null,
+                    'designation' => $employee->designation ? [
+                        'id' => $employee->designation->id,
+                        'name' => $employee->designation->name
+                    ] : null,
+                    'branch' => $employee->branch ? [
+                        'id' => $employee->branch->id,
+                        'name' => $employee->branch->name
+                    ] : null,
+                    'reporting_manager' => $employee->reportingManager ? [
+                        'full_name' => $employee->reportingManager->full_name,
+                        'employee_code' => $employee->reportingManager->employee_code
+                    ] : null,
+                    'verification_url' => url("/verify/{$employee->employee_code}"),
+                    'verified_at' => now()->toIso8601String()
+                ]
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to verify employee', [
+                'employee_code' => $employeeCode,
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to verify employee'
+            ], 500);
+        }
+    }
 }

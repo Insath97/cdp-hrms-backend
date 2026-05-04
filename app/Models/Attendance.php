@@ -25,7 +25,7 @@ class Attendance extends Model
     ];
 
     protected $casts = [
-        'date' => 'datetime:Y-m-d',  // Format 
+        'date' => 'datetime:Y-m-d',  // Format   
         'clock_in' => 'datetime:H:i:s',
         'clock_out' => 'datetime:H:i:s',
         'in_latitude' => 'decimal:8',
