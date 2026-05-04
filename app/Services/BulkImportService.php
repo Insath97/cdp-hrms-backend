@@ -69,12 +69,7 @@ class BulkImportService
             'departments' => [
                 'model' => Department::class,
                 'unique_key' => 'code',
-                'dependencies' => [
-                    'province_code' => ['model' => Province::class, 'field' => 'code', 'foreign_key' => 'province_id'],
-                    'zonal_code' => ['model' => Zonal::class, 'field' => 'code', 'foreign_key' => 'zonal_id'],
-                    'region_code' => ['model' => Region::class, 'field' => 'code', 'foreign_key' => 'region_id'],
-                ],
-                'fillable' => ['name', 'code', 'address_line1', 'address_line2', 'city', 'postal_code', 'zonal_id', 'region_id', 'province_id','phone_primary', 'phone_secondary', 'email', 'fax', 'opening_date', 'branch_type', 'latitude', 'longitude', 'is_active', 'is_head_office'],
+                'fillable' => ['name', 'code', 'description', 'is_active'],
             ],
             'designations' => [
                 'model' => Designation::class,
