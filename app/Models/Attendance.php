@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Carbon\Carbon;
 
 class Attendance extends Model
 {
@@ -25,7 +26,7 @@ class Attendance extends Model
     ];
 
     protected $casts = [
-        'date' => 'datetime:Y-m-d',  // Format   
+        'date' => 'date:Y-m-d',  // Changed from datetime to date
         'clock_in' => 'datetime:H:i:s',
         'clock_out' => 'datetime:H:i:s',
         'in_latitude' => 'decimal:8',
@@ -55,16 +56,39 @@ class Attendance extends Model
             return null;
         }
 
-        $start = \Carbon\Carbon::createFromFormat('H:i:s', $clock_in);
-        $end = \Carbon\Carbon::createFromFormat('H:i:s', $clock_out);
+        try {
+            // Handle both time strings and datetime strings
+            $start = $clock_in;
+            $end = $clock_out;
 
-        // If end time is earlier than start time, assume it's the next day
-        if ($end < $start) {
-            $end->addDay();
+            if (is_string($clock_in) && strlen($clock_in) <= 8) {
+                // It's just a time string
+                $start = Carbon::parse('2000-01-01 ' . $clock_in);
+            } else {
+                $start = Carbon::parse($clock_in);
+            }
+
+            if (is_string($clock_out) && strlen($clock_out) <= 8) {
+                $end = Carbon::parse('2000-01-01 ' . $clock_out);
+            } else {
+                $end = Carbon::parse($clock_out);
+            }
+
+            // If end time is earlier than start time, assume it's the next day
+            if ($end < $start) {
+                $end->addDay();
+            }
+
+            $hours = $start->diffInMinutes($end) / 60;
+            return round($hours, 2);
+        } catch (\Exception $e) {
+            \Log::error('Error calculating working hours', [
+                'clock_in' => $clock_in,
+                'clock_out' => $clock_out,
+                'error' => $e->getMessage()
+            ]);
+            return 0;
         }
-
-        $hours = $start->diffInMinutes($end) / 60;
-        return round($hours, 2);
     }
 
     /**
@@ -75,12 +99,20 @@ class Attendance extends Model
         if (!$clock_in) {
             return false;
         }
-        
-        $clockInTime = \Carbon\Carbon::createFromFormat('H:i:s', $clock_in);
-        $officeStart = \Carbon\Carbon::createFromFormat('H:i:s', $officeStartTime);
-        $gracePeriod = $officeStart->copy()->addMinutes($gracePeriodMinutes);
-        
-        return $clockInTime > $gracePeriod;
+
+        try {
+            $clockInTime = Carbon::createFromFormat('H:i:s', $clock_in);
+            $officeStart = Carbon::createFromFormat('H:i:s', $officeStartTime);
+            $gracePeriod = $officeStart->copy()->addMinutes($gracePeriodMinutes);
+
+            return $clockInTime > $gracePeriod;
+        } catch (\Exception $e) {
+            \Log::error('Error checking late status', [
+                'clock_in' => $clock_in,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
     }
 
     // Scopes
@@ -97,7 +129,7 @@ class Attendance extends Model
 
     public function scopeByDate($query, $date)
     {
-        return $query->where('date', $date);
+        return $query->whereDate('date', $date);
     }
 
     public function scopeByUser($query, $user_id)

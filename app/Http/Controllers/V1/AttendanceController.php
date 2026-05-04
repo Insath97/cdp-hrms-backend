@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use App\Models\Attendance;
 use App\Models\User;
-
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
@@ -81,7 +80,7 @@ class AttendanceController extends Controller implements HasMiddleware
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Store a newly created resource in storage (Clock In)
      */
     public function store(CreateAttendanceRequest $request)
     {
@@ -90,11 +89,36 @@ class AttendanceController extends Controller implements HasMiddleware
 
             Log::info('Store method executed', ['data' => $data]);
 
+            // Ensure clock_in is stored as full datetime
+            if (isset($data['clock_in'])) {
+                $clockInTime = $data['clock_in'];
+                $date = $data['date'] ?? now()->toDateString();
+
+                // If clock_in is just time string, combine with date
+                if (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
+                    $clockInDateTime = Carbon::parse($date . ' ' . $clockInTime);
+                    $data['clock_in'] = $clockInDateTime;
+                } else {
+                    $data['clock_in'] = Carbon::parse($clockInTime);
+                }
+            }
+
             // Calculate working hours if both clock_in and clock_out are provided
-            if ($data['clock_in'] && isset($data['clock_out']) && $data['clock_out']) {
+            if (isset($data['clock_out']) && $data['clock_out']) {
+                $clockOutTime = $data['clock_out'];
+
+                // If clock_out is just time string, combine with date
+                if (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false) {
+                    $date = $data['date'] ?? now()->toDateString();
+                    $clockOutDateTime = Carbon::parse($date . ' ' . $clockOutTime);
+                    $data['clock_out'] = $clockOutDateTime;
+                } else {
+                    $data['clock_out'] = Carbon::parse($clockOutTime);
+                }
+
                 $data['working_hours'] = Attendance::calculateWorkingHours($data['clock_in'], $data['clock_out']);
                 $data['status'] = 'present';
-            } elseif ($data['clock_in']) {
+            } elseif (isset($data['clock_in'])) {
                 $data['status'] = 'present';
             }
 
@@ -120,8 +144,10 @@ class AttendanceController extends Controller implements HasMiddleware
         } catch (\Throwable $th) {
             Log::error('Failed to create attendance', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
+                'trace' => $th->getTraceAsString()
             ]);
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to create attendance',
@@ -210,8 +236,29 @@ class AttendanceController extends Controller implements HasMiddleware
                 }
             }
 
+            // Handle datetime conversion for clock_in and clock_out if provided
+            if (isset($data['clock_in']) && $data['clock_in']) {
+                $clockInTime = $data['clock_in'];
+                $date = $attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date;
+
+                if (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
+                    $data['clock_in'] = Carbon::parse($date . ' ' . $clockInTime);
+                } else {
+                    $data['clock_in'] = Carbon::parse($clockInTime);
+                }
+            }
+
             // Calculate working hours when clock_out is provided
             if (isset($data['clock_out']) && $data['clock_out']) {
+                $clockOutTime = $data['clock_out'];
+                $date = $attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date;
+
+                if (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false) {
+                    $data['clock_out'] = Carbon::parse($date . ' ' . $clockOutTime);
+                } else {
+                    $data['clock_out'] = Carbon::parse($clockOutTime);
+                }
+
                 $clock_in = $data['clock_in'] ?? $attendance->clock_in;
                 $data['working_hours'] = Attendance::calculateWorkingHours($clock_in, $data['clock_out']);
                 $data['status'] = 'present';
@@ -230,7 +277,6 @@ class AttendanceController extends Controller implements HasMiddleware
             }
 
             Log::info('Attendance updated', [
-                // 'user_id' => Auth::id(),
                 'attendance_id' => $attendance->id,
                 'updated_fields' => array_keys($data),
                 'working_hours' => $attendance->working_hours,
@@ -277,10 +323,26 @@ class AttendanceController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            $attendance->clock_out = $request->input('clock_out', now()->format('H:i:s'));
+            // Get the clock out time
+            $clockOutInput = $request->input('clock_out', now()->format('H:i:s'));
+
+            // Create a full datetime by combining date and time
+            $date = $attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date;
+            $clockOutDateTime = Carbon::parse($date . ' ' . $clockOutInput);
+
+            // Store full datetime
+            $attendance->clock_out = $clockOutDateTime;
 
             if ($attendance->clock_in) {
-                $attendance->working_hours = Attendance::calculateWorkingHours($attendance->clock_in, $attendance->clock_out);
+                // clock_in should already be a datetime
+                $start = $attendance->clock_in instanceof Carbon ? $attendance->clock_in : Carbon::parse($attendance->clock_in);
+                $end = $clockOutDateTime;
+
+                if ($end < $start) {
+                    $end->addDay();
+                }
+
+                $attendance->working_hours = round($start->diffInMinutes($end) / 60, 2);
                 $attendance->status = 'present';
             }
 
@@ -301,7 +363,8 @@ class AttendanceController extends Controller implements HasMiddleware
         } catch (\Throwable $th) {
             Log::error('Failed to clock out attendance', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
+                'trace' => $th->getTraceAsString()
             ]);
 
             return response()->json([
@@ -355,11 +418,11 @@ class AttendanceController extends Controller implements HasMiddleware
     /**
      * Daily Attendance Report
      */
-    public function dailyReport(Request $request)  // Changed to Request
+    public function dailyReport(Request $request)
     {
         try {
             $date = $request->input('date', Carbon::today()->toDateString());
-            
+
             // Validate date
             if (!strtotime($date)) {
                 return response()->json([
@@ -367,56 +430,75 @@ class AttendanceController extends Controller implements HasMiddleware
                     'message' => 'Invalid date format. Use YYYY-MM-DD'
                 ], 422);
             }
-            
+
             // Get all users with their employees
             $users = User::with('employee.department')->get();
-            
+
             // Get attendance for the specific date
             $attendances = Attendance::whereDate('date', $date)
                 ->get()
                 ->keyBy('user_id');
-            
+
             $reportData = [];
             $presentCount = 0;
             $absentCount = 0;
             $lateCount = 0;
             $onTimeCount = 0;
-            
+
             foreach ($users as $user) {
                 $attendance = $attendances->get($user->id);
-                
+
                 $status = 'absent';
                 $clock_in = null;
                 $clock_out = null;
                 $working_hours = 0;
                 $is_late = false;
                 $is_on_time = false;
-                
+
                 if ($attendance) {
                     $status = $attendance->status ?? 'present';
-                    $clock_in = $attendance->clock_in;
-                    $clock_out = $attendance->clock_out;
+
+                    // Get raw time values from attributes to avoid casting
+                    $clock_in = $attendance->getRawOriginal('clock_in');
+                    $clock_out = $attendance->getRawOriginal('clock_out');
+
+                    // If raw value is datetime, extract just the time
+                    if ($clock_in && strpos($clock_in, ' ') !== false) {
+                        $clock_in = Carbon::parse($clock_in)->format('H:i:s');
+                    }
+                    if ($clock_out && strpos($clock_out, ' ') !== false) {
+                        $clock_out = Carbon::parse($clock_out)->format('H:i:s');
+                    }
+
                     $working_hours = $attendance->working_hours;
-                    
+
                     // Check if employee was late (assuming 9:00 AM is start time)
                     if ($clock_in) {
-                        $clockInTime = Carbon::createFromFormat('H:i:s', $clock_in);
-                        $officeStartTime = Carbon::createFromTime(9, 0, 0);
-                        
-                        if ($clockInTime > $officeStartTime) {
-                            $is_late = true;
-                            $lateCount++;
-                        } else {
-                            $is_on_time = true;
-                            $onTimeCount++;
+                        try {
+                            $clockInTime = Carbon::createFromFormat('H:i:s', $clock_in);
+                            $officeStartTime = Carbon::createFromTime(9, 0, 0);
+
+                            if ($clockInTime > $officeStartTime) {
+                                $is_late = true;
+                                $lateCount++;
+                            } else {
+                                $is_on_time = true;
+                                $onTimeCount++;
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning('Failed to parse clock_in time', [
+                                'user_id' => $user->id,
+                                'clock_in' => $clock_in,
+                                'error' => $e->getMessage()
+                            ]);
                         }
                     }
-                    
+
                     $presentCount++;
                 } else {
                     $absentCount++;
                 }
-                
+
                 $reportData[] = [
                     'user' => [
                         'id' => $user->id,
@@ -440,28 +522,27 @@ class AttendanceController extends Controller implements HasMiddleware
                     ]
                 ];
             }
-            
-            // Calculate summary
+
             $summary = [
                 'total_employees' => $users->count(),
                 'present' => $presentCount,
                 'absent' => $absentCount,
-                'attendance_percentage' => $users->count() > 0 
+                'attendance_percentage' => $users->count() > 0
                     ? round(($presentCount / $users->count()) * 100, 2)
                     : 0,
                 'on_time' => $onTimeCount,
                 'late' => $lateCount,
-                'late_percentage' => $presentCount > 0 
+                'late_percentage' => $presentCount > 0
                     ? round(($lateCount / $presentCount) * 100, 2)
                     : 0,
             ];
-            
+
             Log::info('Daily attendance report generated', [
                 'user_id' => Auth::id(),
                 'date' => $date,
                 'summary' => $summary
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Daily attendance report retrieved successfully',
@@ -472,13 +553,14 @@ class AttendanceController extends Controller implements HasMiddleware
                     'employees' => $reportData,
                 ]
             ], 200);
-            
+
         } catch (\Throwable $th) {
             Log::error('Failed to generate daily report', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
+                'trace' => $th->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to generate daily report: ' . $th->getMessage()
@@ -489,27 +571,42 @@ class AttendanceController extends Controller implements HasMiddleware
     /**
      * Weekly Attendance Report
      */
-    public function weeklyReport(Request $request)  // Changed to Request
+    public function weeklyReport(Request $request)
     {
         try {
+            // Get the date from request
             $date = $request->input('date', Carbon::today()->toDateString());
+
             $startOfWeek = Carbon::parse($date)->startOfWeek(Carbon::MONDAY)->toDateString();
             $endOfWeek = Carbon::parse($date)->endOfWeek(Carbon::SUNDAY)->toDateString();
-            
+
+            Log::info('Weekly report parameters', [
+                'date' => $date,
+                'start_of_week' => $startOfWeek,
+                'end_of_week' => $endOfWeek
+            ]);
+
             // Get all users
             $users = User::with('employee.department')->get();
-            
+
             // Get all dates in the week
             $weekDates = $this->getDateRange($startOfWeek, $endOfWeek);
-            
+
             // Get all attendance for the week
-            $attendances = Attendance::whereBetween('date', [$startOfWeek, $endOfWeek])
+            $attendances = Attendance::whereDate('date', '>=', $startOfWeek)
+                ->whereDate('date', '<=', $endOfWeek)
                 ->get()
                 ->groupBy('user_id');
-            
+
+            Log::info('Attendances found for week', [
+                'count' => $attendances->count(),
+                'attendance_ids' => $attendances->flatten()->pluck('id')->toArray(),
+                'dates' => $attendances->flatten()->pluck('date')->toArray()
+            ]);
+
             $reportData = [];
             $weeklySummary = [];
-            
+
             foreach ($users as $user) {
                 $userAttendances = $attendances->get($user->id) ?? collect();
                 $weeklyAttendance = [];
@@ -517,28 +614,53 @@ class AttendanceController extends Controller implements HasMiddleware
                 $absentDays = 0;
                 $lateDays = 0;
                 $totalWorkingHours = 0;
-                
+
                 foreach ($weekDates as $weekDate) {
-                    $attendance = $userAttendances->firstWhere('date', $weekDate);
-                    
+                    $attendance = $userAttendances->first(function ($item) use ($weekDate) {
+                        $itemDate = $item->date instanceof Carbon ? $item->date->toDateString() : $item->date;
+                        return $itemDate === $weekDate;
+                    });
+
                     if ($attendance) {
                         $status = $attendance->status ?? 'present';
                         $presentDays++;
                         $totalWorkingHours += $attendance->working_hours ?? 0;
-                        
+
+                        // Get raw time values
+                        $clockIn = $attendance->getRawOriginal('clock_in');
+                        $clockOut = $attendance->getRawOriginal('clock_out');
+
+                        // Extract time if datetime
+                        if ($clockIn && strpos($clockIn, ' ') !== false) {
+                            $clockIn = Carbon::parse($clockIn)->format('H:i:s');
+                        }
+                        if ($clockOut && strpos($clockOut, ' ') !== false) {
+                            $clockOut = Carbon::parse($clockOut)->format('H:i:s');
+                        }
+
                         // Check if late
-                        if ($attendance->clock_in) {
-                            $clockInTime = Carbon::createFromFormat('H:i:s', $attendance->clock_in);
-                            if ($clockInTime > Carbon::createFromTime(9, 0, 0)) {
-                                $lateDays++;
+                        if ($clockIn) {
+                            try {
+                                $clockInTime = Carbon::createFromFormat('H:i:s', $clockIn);
+                                $officeStartTime = Carbon::createFromTime(9, 0, 0);
+
+                                if ($clockInTime > $officeStartTime) {
+                                    $lateDays++;
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning('Failed to parse clock_in time', [
+                                    'user_id' => $user->id,
+                                    'clock_in' => $clockIn,
+                                    'error' => $e->getMessage()
+                                ]);
                             }
                         }
-                        
+
                         $weeklyAttendance[] = [
                             'date' => $weekDate,
                             'status' => $status,
-                            'clock_in' => $attendance->clock_in,
-                            'clock_out' => $attendance->clock_out,
+                            'clock_in' => $clockIn,
+                            'clock_out' => $clockOut,
                             'working_hours' => $attendance->working_hours,
                         ];
                     } else {
@@ -552,11 +674,11 @@ class AttendanceController extends Controller implements HasMiddleware
                         ];
                     }
                 }
-                
-                $attendancePercentage = count($weekDates) > 0 
+
+                $attendancePercentage = count($weekDates) > 0
                     ? round(($presentDays / count($weekDates)) * 100, 2)
                     : 0;
-                
+
                 $reportData[] = [
                     'user' => [
                         'id' => $user->id,
@@ -578,10 +700,11 @@ class AttendanceController extends Controller implements HasMiddleware
                         'attendance_percentage' => $attendancePercentage,
                     ]
                 ];
-                
+
                 // Accumulate for weekly summary
-                if (!isset($weeklySummary[$user->employee?->department_id ?? 'no_department'])) {
-                    $weeklySummary[$user->employee?->department_id ?? 'no_department'] = [
+                $deptKey = $user->employee?->department_id ?? 'no_department';
+                if (!isset($weeklySummary[$deptKey])) {
+                    $weeklySummary[$deptKey] = [
                         'department_name' => $user->employee?->department->name ?? 'No Department',
                         'total_employees' => 0,
                         'total_present_days' => 0,
@@ -589,29 +712,24 @@ class AttendanceController extends Controller implements HasMiddleware
                         'total_working_hours' => 0,
                     ];
                 }
-                
-                $weeklySummary[$user->employee?->department_id ?? 'no_department']['total_employees']++;
-                $weeklySummary[$user->employee?->department_id ?? 'no_department']['total_present_days'] += $presentDays;
-                $weeklySummary[$user->employee?->department_id ?? 'no_department']['total_absent_days'] += $absentDays;
-                $weeklySummary[$user->employee?->department_id ?? 'no_department']['total_working_hours'] += $totalWorkingHours;
+
+                $weeklySummary[$deptKey]['total_employees']++;
+                $weeklySummary[$deptKey]['total_present_days'] += $presentDays;
+                $weeklySummary[$deptKey]['total_absent_days'] += $absentDays;
+                $weeklySummary[$deptKey]['total_working_hours'] += $totalWorkingHours;
             }
-            
+
             // Calculate department averages
             foreach ($weeklySummary as &$dept) {
                 $totalDays = $dept['total_employees'] * count($weekDates);
-                $dept['attendance_percentage'] = $totalDays > 0 
+                $dept['attendance_percentage'] = $totalDays > 0
                     ? round(($dept['total_present_days'] / $totalDays) * 100, 2)
                     : 0;
                 $dept['avg_working_hours'] = $dept['total_employees'] > 0
                     ? round($dept['total_working_hours'] / $dept['total_employees'], 2)
                     : 0;
             }
-            
-            Log::info('Weekly attendance report generated', [
-                'user_id' => Auth::id(),
-                'week' => $startOfWeek . ' to ' . $endOfWeek
-            ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Weekly attendance report retrieved successfully',
@@ -624,13 +742,14 @@ class AttendanceController extends Controller implements HasMiddleware
                     'employees' => $reportData,
                 ]
             ], 200);
-            
+
         } catch (\Throwable $th) {
             Log::error('Failed to generate weekly report', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
+                'trace' => $th->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to generate weekly report: ' . $th->getMessage()
@@ -641,36 +760,49 @@ class AttendanceController extends Controller implements HasMiddleware
     /**
      * Monthly Attendance Report
      */
-    public function monthlyReport(Request $request)  // Changed to Request
+    public function monthlyReport(Request $request)
     {
         try {
-            $month = $request->input('month', Carbon::now()->format('Y-m'));
-            $year = $request->input('year', Carbon::now()->year);
-            
-            // Parse month parameter (format: YYYY-MM)
-            if (strpos($month, '-') !== false) {
-                $parts = explode('-', $month);
-                $year = $parts[0];
-                $month = $parts[1];
-            }
-            
+            // Get the month from request or use provided date
+            $date = $request->input('date', Carbon::now()->toDateString());
+
+            // Parse the date to get year and month
+            $parsedDate = Carbon::parse($date);
+            $year = $parsedDate->year;
+            $month = $parsedDate->month;
+
             $startOfMonth = Carbon::createFromDate($year, $month, 1)->startOfMonth()->toDateString();
             $endOfMonth = Carbon::createFromDate($year, $month, 1)->endOfMonth()->toDateString();
-            
+
+            Log::info('Monthly report parameters', [
+                'date' => $date,
+                'year' => $year,
+                'month' => $month,
+                'start_of_month' => $startOfMonth,
+                'end_of_month' => $endOfMonth
+            ]);
+
             // Get all users
             $users = User::with('employee.department')->get();
-            
+
             // Get all dates in the month
             $monthDates = $this->getDateRange($startOfMonth, $endOfMonth);
-            
+
             // Get all attendance for the month
-            $attendances = Attendance::whereBetween('date', [$startOfMonth, $endOfMonth])
+            $attendances = Attendance::whereDate('date', '>=', $startOfMonth)
+                ->whereDate('date', '<=', $endOfMonth)
                 ->get()
                 ->groupBy('user_id');
-            
+
+            Log::info('Attendances found for month', [
+                'count' => $attendances->count(),
+                'attendance_ids' => $attendances->flatten()->pluck('id')->toArray(),
+                'dates' => $attendances->flatten()->pluck('date')->toArray()
+            ]);
+
             $reportData = [];
             $monthlySummary = [];
-            
+
             foreach ($users as $user) {
                 $userAttendances = $attendances->get($user->id) ?? collect();
                 $monthlyAttendance = [];
@@ -680,13 +812,16 @@ class AttendanceController extends Controller implements HasMiddleware
                 $leaveDays = 0;
                 $halfDays = 0;
                 $totalWorkingHours = 0;
-                
+
                 foreach ($monthDates as $date) {
-                    $attendance = $userAttendances->firstWhere('date', $date);
-                    
+                    $attendance = $userAttendances->first(function ($item) use ($date) {
+                        $itemDate = $item->date instanceof Carbon ? $item->date->toDateString() : $item->date;
+                        return $itemDate === $date;
+                    });
+
                     if ($attendance) {
                         $status = $attendance->status ?? 'present';
-                        
+
                         switch ($status) {
                             case 'present':
                                 $presentDays++;
@@ -698,22 +833,44 @@ class AttendanceController extends Controller implements HasMiddleware
                                 $halfDays++;
                                 break;
                         }
-                        
+
                         $totalWorkingHours += $attendance->working_hours ?? 0;
-                        
+
+                        // Get raw time values
+                        $clockIn = $attendance->getRawOriginal('clock_in');
+                        $clockOut = $attendance->getRawOriginal('clock_out');
+
+                        // Extract time if datetime
+                        if ($clockIn && strpos($clockIn, ' ') !== false) {
+                            $clockIn = Carbon::parse($clockIn)->format('H:i:s');
+                        }
+                        if ($clockOut && strpos($clockOut, ' ') !== false) {
+                            $clockOut = Carbon::parse($clockOut)->format('H:i:s');
+                        }
+
                         // Check if late
-                        if ($attendance->clock_in) {
-                            $clockInTime = Carbon::createFromFormat('H:i:s', $attendance->clock_in);
-                            if ($clockInTime > Carbon::createFromTime(9, 0, 0)) {
-                                $lateDays++;
+                        if ($clockIn) {
+                            try {
+                                $clockInTime = Carbon::createFromFormat('H:i:s', $clockIn);
+                                $officeStartTime = Carbon::createFromTime(9, 0, 0);
+
+                                if ($clockInTime > $officeStartTime) {
+                                    $lateDays++;
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning('Failed to parse clock_in time', [
+                                    'user_id' => $user->id,
+                                    'clock_in' => $clockIn,
+                                    'error' => $e->getMessage()
+                                ]);
                             }
                         }
-                        
+
                         $monthlyAttendance[] = [
                             'date' => $date,
                             'status' => $status,
-                            'clock_in' => $attendance->clock_in,
-                            'clock_out' => $attendance->clock_out,
+                            'clock_in' => $clockIn,
+                            'clock_out' => $clockOut,
                             'working_hours' => $attendance->working_hours,
                         ];
                     } else {
@@ -727,12 +884,12 @@ class AttendanceController extends Controller implements HasMiddleware
                         ];
                     }
                 }
-                
+
                 $totalPresentEquivalents = $presentDays + ($halfDays * 0.5);
-                $attendancePercentage = count($monthDates) > 0 
+                $attendancePercentage = count($monthDates) > 0
                     ? round(($totalPresentEquivalents / count($monthDates)) * 100, 2)
                     : 0;
-                
+
                 $reportData[] = [
                     'user' => [
                         'id' => $user->id,
@@ -756,7 +913,7 @@ class AttendanceController extends Controller implements HasMiddleware
                         'attendance_percentage' => $attendancePercentage,
                     ]
                 ];
-                
+
                 // Accumulate for monthly summary
                 $deptKey = $user->employee?->department_id ?? 'no_department';
                 if (!isset($monthlySummary[$deptKey])) {
@@ -771,7 +928,7 @@ class AttendanceController extends Controller implements HasMiddleware
                         'total_working_hours' => 0,
                     ];
                 }
-                
+
                 $monthlySummary[$deptKey]['total_employees']++;
                 $monthlySummary[$deptKey]['total_present_days'] += $presentDays;
                 $monthlySummary[$deptKey]['total_absent_days'] += $absentDays;
@@ -780,24 +937,26 @@ class AttendanceController extends Controller implements HasMiddleware
                 $monthlySummary[$deptKey]['total_late_days'] += $lateDays;
                 $monthlySummary[$deptKey]['total_working_hours'] += $totalWorkingHours;
             }
-            
+
             // Calculate department averages
             foreach ($monthlySummary as &$dept) {
                 $totalDays = $dept['total_employees'] * count($monthDates);
                 $totalPresentEquivalents = $dept['total_present_days'] + ($dept['total_half_days'] * 0.5);
-                $dept['attendance_percentage'] = $totalDays > 0 
+                $dept['attendance_percentage'] = $totalDays > 0
                     ? round(($totalPresentEquivalents / $totalDays) * 100, 2)
                     : 0;
                 $dept['avg_working_hours'] = $dept['total_employees'] > 0
                     ? round($dept['total_working_hours'] / $dept['total_employees'], 2)
                     : 0;
             }
-            
+
             Log::info('Monthly attendance report generated', [
                 'user_id' => Auth::id(),
-                'month' => $startOfMonth . ' to ' . $endOfMonth
+                'month' => $startOfMonth . ' to ' . $endOfMonth,
+                'total_employees' => $users->count(),
+                'total_attendances' => $attendances->count()
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Monthly attendance report retrieved successfully',
@@ -813,13 +972,14 @@ class AttendanceController extends Controller implements HasMiddleware
                     'employees' => $reportData,
                 ]
             ], 200);
-            
+
         } catch (\Throwable $th) {
             Log::error('Failed to generate monthly report', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
+                'trace' => $th->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to generate monthly report: ' . $th->getMessage()
@@ -835,12 +995,12 @@ class AttendanceController extends Controller implements HasMiddleware
         $dates = [];
         $current = strtotime($fromDate);
         $end = strtotime($toDate);
-        
+
         while ($current <= $end) {
             $dates[] = date('Y-m-d', $current);
             $current = strtotime('+1 day', $current);
         }
-        
+
         return $dates;
     }
 }
