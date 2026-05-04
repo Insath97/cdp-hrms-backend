@@ -27,7 +27,15 @@ use Illuminate\Support\Facades\Route;
 /* public routes */
 
 Route::prefix('v1')->group(function () {
+    // Login endpoint
     Route::post('login', [AuthController::class, 'login']);
+    
+    // Public employee verification (for QR code scanning)
+    Route::get('public/verify-employee/{employeeCode}', [EmployeeController::class, 'verifyByCode'])
+        ->name('public.verify.employee');
+    
+    // Add other public routes here if needed
+    // Route::get('public/...', ...);
 });
 
 /* protected routes */
