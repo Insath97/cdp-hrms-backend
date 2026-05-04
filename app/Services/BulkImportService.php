@@ -61,7 +61,7 @@ class BulkImportService
                 'unique_key' => 'code',
                 'dependencies' => [
                     'province_code' => ['model' => Province::class, 'field' => 'code', 'foreign_key' => 'province_id'],
-                    'zonal_code' => ['model' => Zonal::class, 'field' => 'code', 'foreign_key' => 'zonal_id'],
+                    'zonal_code' => ['model' => Zonal::class, 'field' => 'code', 'foreign_key' => 'zone_id'],
                     'region_code' => ['model' => Region::class, 'field' => 'code', 'foreign_key' => 'region_id'],
                 ],
                 'fillable' => ['name', 'code', 'address_line1', 'address_line2', 'city', 'postal_code', 'zonal_id', 'region_id', 'province_id','phone_primary', 'phone_secondary', 'email', 'fax', 'opening_date', 'branch_type', 'latitude', 'longitude', 'is_active', 'is_head_office'],
@@ -97,12 +97,12 @@ class BulkImportService
                     'designation_code' => ['model' => Designation::class, 'field' => 'code', 'foreign_key' => 'designation_id'],
                 ],
                 'fillable' => [
-                    'f_name', 'l_name', 'full_name', 'name_with_initials', 'employee_code', 'profile_image', 
-                    'reporting_manager_id', 'province_id', 'region_id', 'zonal_id', 'branch_id', 'department_id', 
-                    'designation_id', 'employee_type', 'id_type', 'id_number', 'date_of_birth', 'email', 
-                    'address_line1', 'city', 'state', 'country', 'postal_code', 'phone_primary', 'phone_secondary', 
-                    'have_whatsapp', 'whatsapp_number', 'start_date', 'end_date', 'joined_at', 'left_at', 
-                    'termination_reason', 'permanent_at', 'employment_status', 'basic_salary', 'bank_name', 
+                    'f_name', 'l_name', 'full_name', 'name_with_initials', 'employee_code', 'profile_image',
+                    'reporting_manager_id', 'province_id', 'region_id', 'zonal_id', 'branch_id', 'department_id',
+                    'designation_id', 'employee_type', 'id_type', 'id_number', 'date_of_birth', 'email',
+                    'address_line1', 'city', 'state', 'country', 'postal_code', 'phone_primary', 'phone_secondary',
+                    'have_whatsapp', 'whatsapp_number', 'start_date', 'end_date', 'joined_at', 'left_at',
+                    'termination_reason', 'permanent_at', 'employment_status', 'basic_salary', 'bank_name',
                     'bank_branch', 'account_number', 'description', 'is_active'
                 ],
             ],
@@ -174,7 +174,7 @@ class BulkImportService
 
             // Clean all data (remove empty strings, trim)
             $data = $this->cleanData($data);
-            
+
             // Preprocess data if it's employees
             if ($table === 'employees') {
                 $data = $this->preprocessEmployeeData($data);
@@ -388,7 +388,7 @@ class BulkImportService
                 $allowedFields[] = $dep['foreign_key'];
             }
         }
-        
+
         // Handle unique key(s)
         if (is_array($uniqueKeyField)) {
             foreach ($uniqueKeyField as $field) {
@@ -404,7 +404,7 @@ class BulkImportService
 
         // Remove any fields that aren't in the allowed list
         $filteredData = array_intersect_key($data, array_flip($allowedFields));
-        
+
         // Remove null values that are not required (optional)
         $filteredData = array_filter($filteredData, function($value) {
             return $value !== null;
@@ -420,18 +420,18 @@ class BulkImportService
                         $conditions[$field] = $filteredData[$field];
                     }
                 }
-                
+
                 if (empty($conditions)) {
                     throw new \Exception("No valid unique key fields provided");
                 }
-                
+
                 $modelClass::updateOrCreate($conditions, $filteredData);
             } else {
                 // Single unique key
                 if (!isset($filteredData[$uniqueKeyField])) {
                     throw new \Exception("Unique key field '{$uniqueKeyField}' is missing from data");
                 }
-                
+
                 $modelClass::updateOrCreate(
                     [$uniqueKeyField => $filteredData[$uniqueKeyField]],
                     $filteredData
