@@ -82,79 +82,103 @@ class AttendanceController extends Controller implements HasMiddleware
     /**
      * Store a newly created resource in storage (Clock In)
      */
-    public function store(CreateAttendanceRequest $request)
-    {
-        try {
-            $data = $request->validated();
 
-            Log::info('Store method executed', ['data' => $data]);
+public function store(CreateAttendanceRequest $request)
+{
+    try {
+        $data = $request->validated();
 
-            // Ensure clock_in is stored as full datetime
-            if (isset($data['clock_in'])) {
-                $clockInTime = $data['clock_in'];
-                $date = $data['date'] ?? now()->toDateString();
+        // Get attendance settings
+        $settingsService = app(\App\Services\AttendanceSettingsService::class);
+        $officeStartTimeStr = $settingsService->get('office_start_time', '09:00:00');
+        $gracePeriod = $settingsService->getGracePeriod();
 
-                // If clock_in is just time string, combine with date
-                if (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
-                    $clockInDateTime = Carbon::parse($date . ' ' . $clockInTime);
-                    $data['clock_in'] = $clockInDateTime;
-                } else {
-                    $data['clock_in'] = Carbon::parse($clockInTime);
-                }
+        $exceedsGracePeriod = false;
+        $lateMinutes = 0;
+
+        if (isset($data['clock_in'])) {
+            $clockInTime = $data['clock_in'];
+            $date = $data['date'] ?? now()->toDateString();
+
+            if (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
+                $clockInDateTime = Carbon::parse($date . ' ' . $clockInTime);
+                $data['clock_in'] = $clockInDateTime;
+            } else {
+                $data['clock_in'] = Carbon::parse($clockInTime);
+                $clockInDateTime = $data['clock_in'];
             }
 
-            // Calculate working hours if both clock_in and clock_out are provided
-            if (isset($data['clock_out']) && $data['clock_out']) {
-                $clockOutTime = $data['clock_out'];
+            $officeStart = Carbon::parse($date . ' ' . $officeStartTimeStr);
 
-                // If clock_out is just time string, combine with date
-                if (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false) {
-                    $date = $data['date'] ?? now()->toDateString();
-                    $clockOutDateTime = Carbon::parse($date . ' ' . $clockOutTime);
-                    $data['clock_out'] = $clockOutDateTime;
-                } else {
-                    $data['clock_out'] = Carbon::parse($clockOutTime);
-                }
-
-                $data['working_hours'] = Attendance::calculateWorkingHours($data['clock_in'], $data['clock_out']);
-                $data['status'] = 'present';
-            } elseif (isset($data['clock_in'])) {
-                $data['status'] = 'present';
+            if ($clockInDateTime->gt($officeStart)) {
+                $lateMinutes = $officeStart->diffInMinutes($clockInDateTime);
+                $exceedsGracePeriod = $lateMinutes > $gracePeriod;
             }
 
-            $attendance = Attendance::create($data);
-
-            Log::info('Attendance created', [
-                'user_id' => Auth::id(),
-                'attendance_id' => $attendance->id,
-                'employee_id' => $attendance->employee_id,
-                'user_id' => $attendance->user_id,
-                'date' => $attendance->date,
-                'clock_in' => $attendance->clock_in,
-                'clock_out' => $attendance->clock_out,
-                'working_hours' => $attendance->working_hours,
-                'status' => $attendance->status,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Attendance created successfully',
-                'data' => $attendance->load('employee', 'user')
-            ], 201);
-        } catch (\Throwable $th) {
-            Log::error('Failed to create attendance', [
-                'user_id' => Auth::id(),
-                'error' => $th->getMessage(),
-                'trace' => $th->getTraceAsString()
-            ]);
-
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to create attendance',
-                'error' => $th->getMessage()
-            ], 500);
+            $data['late_minutes'] = $lateMinutes;
+            $data['exceeds_grace_period'] = $exceedsGracePeriod ? 1 : 0;
+            $data['grace_period_applied'] = $gracePeriod;
+            $data['status'] = $exceedsGracePeriod ? 'late' : ($lateMinutes > 0 ? 'present_grace' : 'present');
         }
+
+        $attendance = Attendance::create($data);
+
+        // DEBUG: Log that we're here
+        Log::info('Attendance created, checking auto-conversion', [
+            'attendance_id' => $attendance->id,
+            'exceeds_grace_period' => $exceedsGracePeriod,
+            'date' => $data['date'] ?? now()->toDateString(),
+            'employee_id' => $data['employee_id'] ?? $data['user_id']
+        ]);
+
+        // ONLY trigger if employee was late
+        if ($exceedsGracePeriod) {
+            try {
+                $ruleService = app(\App\Services\AttendanceRuleService::class);
+                $employeeId = $data['employee_id'] ?? $data['user_id'];
+                $attendanceDate = Carbon::parse($data['date'] ?? now()->toDateString());
+
+                Log::info('Calling applyConsecutiveLateRules', [
+                    'employee_id' => $employeeId,
+                    'date' => $attendanceDate->format('Y-m-d')
+                ]);
+
+                $ruleService->applyConsecutiveLateRules($employeeId, $attendanceDate);
+
+                // Refresh to get any updates
+                $attendance->refresh();
+
+                Log::info('After applyConsecutiveLateRules', [
+                    'converted_at' => $attendance->converted_at,
+                    'converted_leave_type' => $attendance->converted_leave_type
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error in auto-conversion', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Attendance created successfully',
+            'data' => $attendance->load('employee', 'user')
+        ], 201);
+
+    } catch (\Throwable $th) {
+        Log::error('Failed to create attendance', [
+            'error' => $th->getMessage(),
+            'trace' => $th->getTraceAsString()
+        ]);
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to create attendance',
+            'error' => $th->getMessage()
+        ], 500);
     }
+}
 
     /**
      * Display the specified resource.

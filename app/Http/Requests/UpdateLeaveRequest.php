@@ -28,6 +28,7 @@ class UpdateLeaveRequest extends FormRequest
             'leave_type_id' => 'sometimes|exists:leave_types,id',
             'from_date' => 'sometimes|date|after_or_equal:today',
             'to_date' => 'sometimes|date|after_or_equal:from_date',
+            'medical_certificate' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'reason' => 'nullable|string|max:1000',
         ];
     }

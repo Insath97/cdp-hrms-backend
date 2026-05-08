@@ -1,9 +1,11 @@
 <?php
+// app/Models/Leave.php - Add these methods
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Carbon\Carbon;
 
 class Leave extends Model
 {
@@ -20,6 +22,9 @@ class Leave extends Model
         'rejected_by',
         'rejected_at',
         'reject_reason',
+        'is_auto_converted',
+        'consecutive_late_days',
+        'grace_period_at_conversion'
     ];
 
     protected $casts = [
@@ -27,6 +32,7 @@ class Leave extends Model
         'to_date' => 'date',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'is_auto_converted' => 'boolean'
     ];
 
     // Relationships
@@ -42,7 +48,7 @@ class Leave extends Model
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class);
     }
 
     public function approvedBy(): BelongsTo
@@ -71,9 +77,9 @@ class Leave extends Model
         return $query->where('status', 'rejected');
     }
 
-    public function scopeForEmployee($query, $employeeId)
+    public function scopeAutoConverted($query)
     {
-        return $query->where('employee_id', $employeeId);
+        return $query->where('is_auto_converted', true);
     }
 
     // Helper methods
@@ -91,5 +97,16 @@ class Leave extends Model
     {
         return $this->isPending();
     }
-}
 
+    public function calculateDays()
+    {
+        $start = Carbon::parse($this->from_date);
+        $end = Carbon::parse($this->to_date);
+        return $start->diffInDays($end) + 1;
+    }
+
+    public function getBalanceIdentifier()
+    {
+        return $this->employee_id ?? $this->user_id;
+    }
+}

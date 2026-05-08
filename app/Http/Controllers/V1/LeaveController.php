@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateLeaveRequest;
 use App\Http\Requests\UpdateLeaveRequest;
 use App\Models\Leave;
+use App\Traits\FileUploadTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,8 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class LeaveController extends Controller implements HasMiddleware
 {
+    use FileUploadTrait;
+
     public static function middleware(): array
     {
         return [
@@ -34,6 +37,10 @@ class LeaveController extends Controller implements HasMiddleware
 
             if ($request->has('employee_id')) {
                 $query->where('employee_id', $request->employee_id);
+            }
+
+            if ($request->has('user_id')) {
+                $query->where('user_id', $request->user_id);
             }
 
             if ($request->has('leave_type_id')) {
@@ -82,6 +89,19 @@ class LeaveController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $data['user_id'] = $data['user_id'] ?? Auth::id();
+
+            // Handle medical certificate upload
+            if ($request->hasFile('medical_certificate')) {
+                $prefix = 'leave_' . time() . '_' . uniqid();
+                $data['medical_certificate'] = $this->handleFileUpload(
+                    $request,
+                    'medical_certificate',
+                    null,
+                    'leaves/medical',
+                    $prefix
+                );
+            }
+
             $leave = Leave::create($data);
 
             Log::info('Leave request created', [
@@ -89,7 +109,8 @@ class LeaveController extends Controller implements HasMiddleware
                 'leave_id' => $leave->id,
                 'employee_id' => $leave->employee_id,
                 'from_date' => $leave->from_date,
-                'to_date' => $leave->to_date
+                'to_date' => $leave->to_date,
+                'has_medical_certificate' => !is_null($leave->medical_certificate)
             ]);
 
             return response()->json([
@@ -167,6 +188,19 @@ class LeaveController extends Controller implements HasMiddleware
             }
 
             $data = $request->validated();
+
+            // Handle medical certificate upload for update
+            if ($request->hasFile('medical_certificate')) {
+                $prefix = 'leave_' . time() . '_' . uniqid();
+                $data['medical_certificate'] = $this->handleFileUpload(
+                    $request,
+                    'medical_certificate',
+                    $leave->medical_certificate,
+                    'leaves/medical',
+                    $prefix
+                );
+            }
+
             $leave->update($data);
 
             Log::info('Leave request updated', [
@@ -211,6 +245,11 @@ class LeaveController extends Controller implements HasMiddleware
                     'status' => 'error',
                     'message' => 'Only pending leave requests can be deleted'
                 ], 422);
+            }
+
+            // Delete medical certificate if exists
+            if ($leave->medical_certificate) {
+                $this->deleteFile($leave->medical_certificate);
             }
 
             $leave->delete();

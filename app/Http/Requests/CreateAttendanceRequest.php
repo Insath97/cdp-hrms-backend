@@ -27,7 +27,7 @@ class CreateAttendanceRequest extends FormRequest
             'employee_id' => 'nullable|exists:employees,id',
             'user_id' => 'required|exists:users,id',
             'date' => 'required|date',
-            'clock_in' => 'nullable|date_format:H:i:s',
+            'clock_in' => 'required|date_format:H:i:s',
             // 'clock_out' => 'nullable|date_format:H:i:s',
             'status' => 'nullable|in:present,absent,half_day,leave',
         ];

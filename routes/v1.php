@@ -14,6 +14,7 @@ use App\Http\Controllers\V1\DesignationController;
 use App\Http\Controllers\V1\LeaveTypeController;
 use App\Http\Controllers\V1\LeaveController;
 use App\Http\Controllers\V1\LetterController;
+use App\Http\Controllers\V1\AttendanceSettingsController;
 use App\Http\Controllers\V1\AttendanceController;
 use App\Http\Controllers\V1\TableCountController;
 use App\Http\Controllers\V1\FingerprintController;
@@ -29,11 +30,11 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     // Login endpoint
     Route::post('login', [AuthController::class, 'login']);
-    
+
     // Public employee verification (for QR code scanning)
     Route::get('public/verify-employee/{employeeCode}', [EmployeeController::class, 'verifyByCode'])
         ->name('public.verify.employee');
-    
+
     // Add other public routes here if needed
     // Route::get('public/...', ...);
 });
@@ -98,7 +99,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::put('attendances', [AttendanceController::class, 'update']);
     Route::apiResource('attendances', AttendanceController::class);
 
-    
+
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);
     Route::delete('employees/{employee}/force-delete', [EmployeeController::class, 'forceDelete']);
@@ -112,26 +113,26 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     // Fingerprint Device Routes
     Route::prefix('fingerprint')->middleware(['auth:sanctum', 'permission:manage fingerprint'])->group(function () {
-        
+
         // Device Management
         Route::get('/test-connection', [FingerprintController::class, 'testConnection']);
         Route::get('/device-info', [FingerprintController::class, 'getDeviceInfo']);
         Route::get('/device-users', [FingerprintController::class, 'getDeviceUsers']);
         Route::get('/device-statistics', [FingerprintController::class, 'getDeviceStatistics']);
-        
+
         // Attendance Logs
         Route::get('/attendance-logs', [FingerprintController::class, 'getAttendanceLogs']);
         Route::get('/attendance-today', [FingerprintController::class, 'getTodayAttendance']);
-        
+
         // Sync Operations
         Route::post('/sync-user', [FingerprintController::class, 'syncUserToDevice']);
         Route::post('/sync-attendance', [FingerprintController::class, 'syncAttendanceToHRMS']);
         Route::get('/compare-attendance', [FingerprintController::class, 'compareAttendance']);
-        
+
         // Fingerprint Management
         Route::post('/register-fingerprint', [FingerprintController::class, 'registerFingerprint']);
         Route::delete('/delete-fingerprint', [FingerprintController::class, 'deleteFingerprint']);
-        
+
         // Manual Operations
         Route::post('/manual-attendance', [FingerprintController::class, 'manualAttendance']);
     });
@@ -139,7 +140,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // Webhook endpoint (no authentication, device will call this)
     Route::post('/webhooks/fingerprint', [FingerprintWebhookController::class, 'handleWebhook']);
 
-    
+
     // Employee routes
     Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/payroll', [PayrollController::class, 'index']);
@@ -160,4 +161,22 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('imports/tables/list', [ImportController::class, 'listTables']);
     Route::get('imports', [ImportController::class, 'index']);
     Route::post('imports/{table}', [ImportController::class, 'import']);
+
+
+    // Attendance Settings Routes
+    Route::prefix('attendance-settings')->group(function () {
+        Route::get('/', [AttendanceSettingsController::class, 'index'])
+            ->middleware('permission:Attendance Settings View');
+        Route::get('/metadata', [AttendanceSettingsController::class, 'metadata'])
+            ->middleware('permission:Attendance Settings View');
+        Route::get('/{key}', [AttendanceSettingsController::class, 'show'])
+            ->middleware('permission:Attendance Settings View');
+        Route::put('/{key}', [AttendanceSettingsController::class, 'update'])
+            ->middleware('permission:Attendance Settings Update');
+        Route::post('/batch', [AttendanceSettingsController::class, 'batchUpdate'])
+            ->middleware('permission:Attendance Settings Update');
+        Route::post('/reset', [AttendanceSettingsController::class, 'reset'])
+            ->middleware('permission:Attendance Settings Reset');
+    });
+
 });

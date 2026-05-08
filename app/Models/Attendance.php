@@ -16,13 +16,20 @@ class Attendance extends Model
         'employee_id',
         'date',
         'clock_in',
+        'in_ipAddress',
         'clock_out',
+        'out_ipAddress',
         'in_latitude',
         'in_longitude',
         'out_latitude',
         'out_longitude',
         'working_hours',
+        'late_minutes',           // Add this
+        'exceeds_grace_period',   // Add this
+        'grace_period_applied',   // Add this
         'status',
+        'converted_at',
+        'converted_leave_type',
     ];
 
     protected $casts = [
