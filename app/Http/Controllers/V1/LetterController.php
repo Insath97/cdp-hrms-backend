@@ -4,7 +4,6 @@ namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateLetterRequest;
-use App\Http\Requests\UpdatePermissionRequest;
 use App\Http\Requests\UpdateLetterRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -55,7 +54,7 @@ class LetterController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Letters retrieved successfully',
-                'data' => $letters->load(['designation'])
+                'data' => $letters->load(['designation', 'department', 'branch'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to retrieve letters', [
@@ -94,11 +93,14 @@ class LetterController extends Controller implements HasMiddleware
                 'ref_number' => $letter->ref_number,
                 'title' => $letter->title,
                 'employee_name' => $letter->employee_name,
+                'nic_number' => $letter->nic_number,
                 'address_line1' => $letter->address_line1,
                 'address_line2' => $letter->address_line2,
                 'city' => $letter->city,
                 'department_id' => $letter->department_id,
                 'designation_id' => $letter->designation_id,
+                'branch_id' => $letter->branch_id,
+                'date' => $letter->date,
             ]);
 
             return response()->json([
@@ -142,7 +144,7 @@ class LetterController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Letter retrieved successfully',
-                'data' => $letter
+                'data' => $letter->load(['designation', 'department', 'branch'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to retrieve letter', [
@@ -301,15 +303,13 @@ class LetterController extends Controller implements HasMiddleware
     public function getLetterList()
     {
         try {
-            $letters = Letter::active()
-                ->select('id', 'title', 'content')
-                ->orderBy('id', 'asc')
+            $letters = Letter::orderBy('id', 'asc')
                 ->get();
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Letters retrieved successfully',
-                'data' => $letters
+                'data' => $letters->load(['designation', 'department', 'branch'])
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to retrieve letter list', [

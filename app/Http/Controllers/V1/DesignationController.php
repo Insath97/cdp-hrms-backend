@@ -291,7 +291,21 @@ class DesignationController extends Controller implements HasMiddleware
                 $query->where('department_id', $request->department_id);
             }
 
-            $designations = $query->select('id', 'name', 'code', 'department_id', 'level')
+            $designations = $query->select(
+                'id',  
+                'name',
+                'code',
+                'department_id',
+                'monthly_target',
+                'basic_salary',
+                'travel_reimbursement',
+                'vehicle_rental',
+                'performance_allowance',
+                'incentive',
+                'position_allowance',
+                'total_package',
+                'level'
+            )
                 ->orderBy('name', 'asc')
                 ->get();
 

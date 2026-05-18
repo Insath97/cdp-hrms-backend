@@ -21,8 +21,15 @@ class Attendance extends Model
         'in_longitude',
         'out_latitude',
         'out_longitude',
+        'in_ipAddress',
+        'out_ipAddress',
         'working_hours',
         'status',
+        'late_minutes',
+        'exceeds_grace_period',
+        'converted_at',
+        'converted_leave_type',
+        'grace_period_applied',
     ];
 
     protected $casts = [

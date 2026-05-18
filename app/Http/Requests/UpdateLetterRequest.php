@@ -26,11 +26,18 @@ class UpdateLetterRequest extends FormRequest
         return [
             'title' => 'sometimes|string|max:255',
             'employee_name' => 'sometimes|string|max:255',
+            'nic_number' => 'sometimes|string|max:255',
             'address_line1' => 'sometimes|string|max:255',
             'address_line2' => 'nullable|string|max:255',
             'city' => 'sometimes|string|max:255',
             'department_id' => 'sometimes|exists:departments,id',
             'designation_id' => 'sometimes|exists:designations,id',
+            'branch_id' => 'sometimes|exists:branches,id',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date',
+            'date' => 'sometimes|date',
+            'signed_by_name' => 'sometimes|string|max:255',
+            'signed_by_designation' => 'sometimes|string|max:255',
         ];
     }
 

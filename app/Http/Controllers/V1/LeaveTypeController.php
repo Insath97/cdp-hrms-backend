@@ -245,7 +245,7 @@ class LeaveTypeController extends Controller implements HasMiddleware
     {
         try {
             $leaveTypes = LeaveType::where('is_active', true)
-                ->select('id', 'name', 'code')
+                ->select('id', 'name', 'code', 'calculation_unit', 'default_allocation')
                 ->orderBy('name', 'asc')
                 ->get();
 

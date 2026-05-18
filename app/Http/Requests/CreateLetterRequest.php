@@ -26,11 +26,18 @@ class CreateLetterRequest extends FormRequest
         return [
             'title' => 'required|string|max:255',
             'employee_name' => 'required|string|max:255',
+            'nic_number' => 'required|string|max:255',
             'address_line1' => 'required|string|max:255',
             'address_line2' => 'nullable|string|max:255',
             'city' => 'required|string|max:255',
             'department_id' => 'required|exists:departments,id',
             'designation_id' => 'required|exists:designations,id',
+            'branch_id' => 'required|exists:branches,id',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date',
+            'date' => 'required|date',
+            'signed_by_name' => 'required|string|max:255',
+            'signed_by_designation' => 'required|string|max:255',
         ];
     }
 

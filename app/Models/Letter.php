@@ -33,11 +33,18 @@ class Letter extends Model
         'ref_number',
         'title',
         'employee_name',
+        'nic_number',
         'address_line1',
         'address_line2',
         'city',
         'department_id',
         'designation_id',
+        'branch_id',
+        'start_date',
+        'end_date',
+        'date',
+        'signed_by_name',
+        'signed_by_designation',
     ];
 
     // Relationships
@@ -49,6 +56,11 @@ class Letter extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
     }
 
     public function scopeSearch($query, $search)

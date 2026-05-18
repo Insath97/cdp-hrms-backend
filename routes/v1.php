@@ -21,6 +21,8 @@ use App\Http\Controllers\V1\FingerprintWebhookController;
 use App\Http\Controllers\V1\PayrollController;
 use App\Http\Controllers\V1\PayrollAdminController;
 use App\Http\Controllers\V1\ImportController;
+use App\Http\Controllers\V1\LeaveBalanceController;
+use App\Http\Controllers\V1\HolidayController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -82,9 +84,12 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::patch('leave-types/{id}/toggle-status', [LeaveTypeController::class, 'toggleStatus']);
     Route::apiResource('leave-types', LeaveTypeController::class);
 
+    Route::get('leaves/pending-approvals', [LeaveController::class, 'index']);
     Route::post('leaves/{id}/approve', [LeaveController::class, 'approve']);
     Route::post('leaves/{id}/reject', [LeaveController::class, 'reject']);
     Route::apiResource('leaves', LeaveController::class);
+
+    Route::get('leave-balances', [LeaveBalanceController::class, 'index']);
 
     Route::apiResource('letters', LetterController::class);
 
@@ -94,9 +99,25 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('report/weekly', [AttendanceController::class, 'weeklyReport']);
         Route::get('report/monthly', [AttendanceController::class, 'monthlyReport']);
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
+        Route::post('process-rules', [AttendanceController::class, 'processRules']);
+        Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
     });
     Route::put('attendances', [AttendanceController::class, 'update']);
     Route::apiResource('attendances', AttendanceController::class);
+
+    Route::prefix('attendance-settings')->group(function () {
+        Route::get('/', [\App\Http\Controllers\V1\AttendanceSettingController::class, 'getAll']);
+        Route::post('/batch', [\App\Http\Controllers\V1\AttendanceSettingController::class, 'batchUpdate']);
+        Route::get('/{key}', [\App\Http\Controllers\V1\AttendanceSettingController::class, 'get']);
+        Route::put('/{key}', [\App\Http\Controllers\V1\AttendanceSettingController::class, 'update']);
+    });
+    Route::post('attendance-settings/process-rules-manually', [\App\Http\Controllers\V1\AttendanceSettingController::class, 'processRulesManually']);
+
+    Route::prefix('holidays')->group(function () {
+        Route::get('/', [HolidayController::class, 'index']);
+        Route::post('/', [HolidayController::class, 'store']);
+        Route::post('/sync', [HolidayController::class, 'sync']);
+    });
 
     
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);

@@ -6,14 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateLeaveRequest;
 use App\Http\Requests\UpdateLeaveRequest;
 use App\Models\Leave;
+use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\FileUploadTrait;
 
 class LeaveController extends Controller implements HasMiddleware
 {
+    use FileUploadTrait;
     public static function middleware(): array
     {
         return [
@@ -36,6 +39,18 @@ class LeaveController extends Controller implements HasMiddleware
                 $query->where('employee_id', $request->employee_id);
             }
 
+            if ($request->has('user_id')) {
+                $query->where('user_id', $request->user_id);
+            }
+
+            if ($request->has('year')) {
+                $year = $request->year;
+                $query->where(function($q) use ($year) {
+                    $q->whereYear('from_date', $year)
+                      ->orWhereYear('to_date', $year);
+                });
+            }
+
             if ($request->has('leave_type_id')) {
                 $query->where('leave_type_id', $request->leave_type_id);
             }
@@ -48,6 +63,19 @@ class LeaveController extends Controller implements HasMiddleware
                 $query->whereHas('employee', function ($q) use ($request) {
                     $q->where('full_name', 'like', "%{$request->search}%");
                 });
+            }
+
+            // Hierarchical approval filter
+            if ($request->is('*pending-approvals*') || ($request->has('pending_my_approval') && $request->pending_my_approval == 'true')) {
+                $user = Auth::user();
+                if ($user && $user->employee_id) {
+                    $employee = Employee::find($user->employee_id);
+                    if ($employee) {
+                        $responsibleIds = $employee->getResponsibleSubordinateIds();
+                        $query->whereIn('employee_id', $responsibleIds)
+                              ->where('status', 'pending');
+                    }
+                }
             }
 
             $leaves = $query->orderBy('created_at', 'desc')->paginate($perPage);
@@ -82,6 +110,19 @@ class LeaveController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $data['user_id'] = $data['user_id'] ?? Auth::id();
+            
+            $path = $this->handleFileUpload(
+                $request,
+                'medical_certificate',
+                null,
+                'leaves/medical',
+                'cert_' . time()
+            );
+
+            if ($path) {
+                $data['medical_certificate'] = $path;
+            }
+            
             $leave = Leave::create($data);
 
             Log::info('Leave request created', [
@@ -167,6 +208,19 @@ class LeaveController extends Controller implements HasMiddleware
             }
 
             $data = $request->validated();
+            
+            $path = $this->handleFileUpload(
+                $request,
+                'medical_certificate',
+                $leave->medical_certificate,
+                'leaves/medical',
+                'cert_' . time()
+            );
+
+            if ($path) {
+                $data['medical_certificate'] = $path;
+            }
+
             $leave->update($data);
 
             Log::info('Leave request updated', [
@@ -257,11 +311,100 @@ class LeaveController extends Controller implements HasMiddleware
                 ], 422);
             }
 
+            $user = Auth::user();
+            $approverEmpId = $user ? $user->employee_id : null;
+
             $leave->update([
                 'status' => 'approved',
-                'approved_by' => Auth::id(),
+                'approved_by' => $approverEmpId,
                 'approved_at' => now(),
             ]);
+
+            // Deduction from LeaveBalance
+            if ($leave->employee_id || $leave->user_id) {
+                $fromDate = \Carbon\Carbon::parse($leave->from_date);
+                $toDate = \Carbon\Carbon::parse($leave->to_date);
+                
+                $days = 0;
+                $current = $fromDate->copy();
+                while ($current <= $toDate) {
+                    // Only count if it's not a holiday
+                    if (!\App\Models\Holiday::isHoliday($current)) {
+                        $days++;
+                    }
+                    $current->addDay();
+                }
+
+                if ($days === 0) {
+                    // If all days are holidays, maybe don't deduct anything or return early?
+                    // Usually the frontend should prevent this, but we'll set it to 0.
+                }
+
+                $leaveType = \App\Models\LeaveType::find($leave->leave_type_id);
+                $deduction = $days;
+                
+                if ($leaveType) {
+                    if (stripos($leaveType->calculation_unit, 'half') !== false) {
+                        $deduction = $days * 0.5;
+                    } elseif (stripos($leaveType->calculation_unit, 'hour') !== false || stripos($leaveType->name, 'short') !== false) {
+                        $deduction = $days * 0.25; // Assumption for short leave
+                    }
+                }
+
+                $balanceMatch = [
+                    'leave_type_id' => $leave->leave_type_id,
+                    'year' => date('Y')
+                ];
+                if ($leave->employee_id) {
+                    $balanceMatch['employee_id'] = $leave->employee_id;
+                } else {
+                    $balanceMatch['user_id'] = $leave->user_id;
+                }
+
+                $balance = \App\Models\LeaveBalance::firstOrCreate(
+                    $balanceMatch,
+                    [
+                        'allocated' => $leaveType ? $leaveType->default_allocation : 0,
+                        'used' => 0,
+                        'balance' => $leaveType ? $leaveType->default_allocation : 0
+                    ]
+                );
+
+                $balance->used += $deduction;
+                $balance->balance = $balance->allocated - $balance->used;
+                $balance->save();
+
+                // Update Attendance records to reflect the approved leave
+                $isMedical = stripos($leaveType->name, 'medical') !== false || strtolower($leaveType->code) === 'ml';
+                $statusToApply = $isMedical ? 'medical_leave' : 'leave';
+
+                $currentApproveDate = \Carbon\Carbon::parse($leave->from_date);
+                $endApproveDate = \Carbon\Carbon::parse($leave->to_date);
+
+                while ($currentApproveDate <= $endApproveDate) {
+                    $attendanceMatch = [
+                        'date' => $currentApproveDate->format('Y-m-d')
+                    ];
+                    if ($leave->employee_id) {
+                        $attendanceMatch['employee_id'] = $leave->employee_id;
+                    } else {
+                        $attendanceMatch['user_id'] = $leave->user_id;
+                    }
+
+                    \App\Models\Attendance::updateOrCreate(
+                        $attendanceMatch,
+                        [
+                            'user_id' => $leave->user_id,
+                            'employee_id' => $leave->employee_id,
+                            'status' => $statusToApply,
+                            'working_hours' => 0,
+                            'clock_in' => null,
+                            'clock_out' => null
+                        ]
+                    );
+                    $currentApproveDate->addDay();
+                }
+            }
 
             Log::info('Leave request approved', [
                 'user_id' => Auth::id(),
@@ -311,9 +454,12 @@ class LeaveController extends Controller implements HasMiddleware
                 ], 422);
             }
 
+            $user = Auth::user();
+            $rejectorEmpId = $user ? $user->employee_id : null;
+
             $leave->update([
                 'status' => 'rejected',
-                'rejected_by' => Auth::id(),
+                'rejected_by' => $rejectorEmpId,
                 'rejected_at' => now(),
                 'reject_reason' => $request->reject_reason,
             ]);

@@ -20,11 +20,12 @@ class Leave extends Model
         'rejected_by',
         'rejected_at',
         'reject_reason',
+        'medical_certificate',
     ];
 
     protected $casts = [
-        'from_date' => 'date',
-        'to_date' => 'date',
+        'from_date' => 'date:Y-m-d',
+        'to_date' => 'date:Y-m-d',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
     ];

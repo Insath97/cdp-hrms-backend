@@ -11,8 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('letters', function (Blueprint $table) {
-            $table->string('title')->change();
+        Schema::create('attendance_settings', function (Blueprint $table) {
+            $table->id();
+            $table->string('key')->unique();
+            $table->text('value')->nullable();
+            $table->timestamps();
         });
     }
 
@@ -21,8 +24,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('letters', function (Blueprint $table) {
-            $table->date('title')->change();
-        });
+        Schema::dropIfExists('attendance_settings');
     }
 };

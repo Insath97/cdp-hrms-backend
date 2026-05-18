@@ -87,6 +87,14 @@ class AttendanceController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
 
+            // Capture IP addresses
+            if (!isset($data['in_ipAddress'])) {
+                $data['in_ipAddress'] = $request->ip();
+            }
+            if (isset($data['clock_out']) && !isset($data['out_ipAddress'])) {
+                $data['out_ipAddress'] = $request->ip();
+            }
+
             Log::info('Store method executed', ['data' => $data]);
 
             // Ensure clock_in is stored as full datetime
@@ -100,6 +108,38 @@ class AttendanceController extends Controller implements HasMiddleware
                     $data['clock_in'] = $clockInDateTime;
                 } else {
                     $data['clock_in'] = Carbon::parse($clockInTime);
+                }
+            }
+
+            if (!isset($data['employee_id']) && isset($data['user_id'])) {
+                $user = User::with('employee')->find($data['user_id']);
+                if ($user && $user->employee) {
+                    $data['employee_id'] = $user->employee->id;
+                }
+            }
+
+            $gracePeriod = \App\Models\AttendanceSetting::getIntSetting('grace_period_minutes', 5);
+            $officeStartStr = \App\Models\AttendanceSetting::getSetting('office_start_time', '09:00:00');
+            $data['grace_period_applied'] = $gracePeriod;
+
+            if (isset($data['clock_in'])) {
+                $dateToUse = $data['date'] ?? now()->toDateString();
+
+                // Check if this date is a holiday
+                if (\App\Models\Holiday::isHoliday($dateToUse)) {
+                    $data['late_minutes'] = 0;
+                    $data['exceeds_grace_period'] = 0;
+                } else {
+                    $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
+                    
+                    if ($data['clock_in'] > $officeStartDateTime) {
+                        $lateMinutes = (int) $officeStartDateTime->diffInMinutes($data['clock_in']);
+                        $data['late_minutes'] = $lateMinutes;
+                        $data['exceeds_grace_period'] = ($lateMinutes > $gracePeriod) ? 1 : 0;
+                    } else {
+                        $data['late_minutes'] = 0;
+                        $data['exceeds_grace_period'] = 0;
+                    }
                 }
             }
 
@@ -123,6 +163,10 @@ class AttendanceController extends Controller implements HasMiddleware
             }
 
             $attendance = Attendance::create($data);
+
+            // Trigger rule processing automatically
+            $dateStr = ($attendance->date instanceof Carbon) ? $attendance->date->toDateString() : Carbon::parse($attendance->date)->toDateString();
+            $this->executeProcessRules($dateStr, $attendance->employee_id);
 
             Log::info('Attendance created', [
                 'user_id' => Auth::id(),
@@ -248,6 +292,34 @@ class AttendanceController extends Controller implements HasMiddleware
                 }
             }
 
+            if (!isset($data['employee_id']) && isset($data['user_id'])) {
+                // Determine employee_id if changing users
+                $user = User::with('employee')->find($data['user_id']);
+                if ($user && $user->employee) {
+                    $data['employee_id'] = $user->employee->id;
+                }
+            }
+
+            $gracePeriod = \App\Models\AttendanceSetting::getIntSetting('grace_period_minutes', 5);
+            $officeStartStr = \App\Models\AttendanceSetting::getSetting('office_start_time', '09:00:00');
+            $data['grace_period_applied'] = $gracePeriod;
+
+            $testClockInRaw = $data['clock_in'] ?? $attendance->clock_in;
+            $testClockIn = $testClockInRaw ? Carbon::parse($testClockInRaw) : null;
+            if ($testClockIn) {
+                $dateToUse = $data['date'] ?? ($attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date);
+                $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
+                
+                if ($testClockIn > $officeStartDateTime) {
+                    $lateMinutes = (int) $officeStartDateTime->diffInMinutes($testClockIn);
+                    $data['late_minutes'] = $lateMinutes;
+                    $data['exceeds_grace_period'] = ($lateMinutes > $gracePeriod) ? 1 : 0;
+                } else {
+                    $data['late_minutes'] = 0;
+                    $data['exceeds_grace_period'] = 0;
+                }
+            }
+
             // Calculate working hours when clock_out is provided
             if (isset($data['clock_out']) && $data['clock_out']) {
                 $clockOutTime = $data['clock_out'];
@@ -275,6 +347,10 @@ class AttendanceController extends Controller implements HasMiddleware
                 $attendance->user_id = $requestedUserId;
                 $attendance->save();
             }
+
+            // Trigger rule processing automatically
+            $dateStr = ($attendance->date instanceof Carbon) ? $attendance->date->toDateString() : Carbon::parse($attendance->date)->toDateString();
+            $this->executeProcessRules($dateStr, $attendance->employee_id);
 
             Log::info('Attendance updated', [
                 'attendance_id' => $attendance->id,
@@ -332,6 +408,11 @@ class AttendanceController extends Controller implements HasMiddleware
 
             // Store full datetime
             $attendance->clock_out = $clockOutDateTime;
+
+            // Capture out IP Address
+            if (!$attendance->out_ipAddress) {
+                $attendance->out_ipAddress = $request->ip();
+            }
 
             if ($attendance->clock_in) {
                 // clock_in should already be a datetime
@@ -496,7 +577,13 @@ class AttendanceController extends Controller implements HasMiddleware
 
                     $presentCount++;
                 } else {
-                    $absentCount++;
+                    // Check if today is a holiday
+                    if (\App\Models\Holiday::isHoliday($date)) {
+                        $status = 'holiday';
+                    } else {
+                        $status = 'absent';
+                        $absentCount++;
+                    }
                 }
 
                 $reportData[] = [
@@ -664,10 +751,17 @@ class AttendanceController extends Controller implements HasMiddleware
                             'working_hours' => $attendance->working_hours,
                         ];
                     } else {
-                        $absentDays++;
+                        // Check if this date is a holiday
+                        if (\App\Models\Holiday::isHoliday($weekDate)) {
+                            $status = 'holiday';
+                        } else {
+                            $status = 'absent';
+                            $absentDays++;
+                        }
+
                         $weeklyAttendance[] = [
                             'date' => $weekDate,
-                            'status' => 'absent',
+                            'status' => $status,
                             'clock_in' => null,
                             'clock_out' => null,
                             'working_hours' => 0,
@@ -874,10 +968,17 @@ class AttendanceController extends Controller implements HasMiddleware
                             'working_hours' => $attendance->working_hours,
                         ];
                     } else {
-                        $absentDays++;
+                        // Check if this date is a holiday
+                        if (\App\Models\Holiday::isHoliday($date)) {
+                            $status = 'holiday';
+                        } else {
+                            $status = 'absent';
+                            $absentDays++;
+                        }
+
                         $monthlyAttendance[] = [
                             'date' => $date,
-                            'status' => 'absent',
+                            'status' => $status,
                             'clock_in' => null,
                             'clock_out' => null,
                             'working_hours' => 0,
@@ -1002,5 +1103,192 @@ class AttendanceController extends Controller implements HasMiddleware
         }
 
         return $dates;
+    }
+
+    public function processRules(Request $request) {
+        $date = $request->input('date', now()->toDateString());
+        $employeeId = $request->input('employee_id');
+
+        $this->executeProcessRules($date, $employeeId);
+        
+        return response()->json(['status' => 'success', 'message' => 'Rules processed successfully']);
+    }
+
+    private function executeProcessRules($date, $employeeId = null) {
+        $query = Attendance::whereDate('date', '<=', $date)->orderBy('date', 'desc');
+        if ($employeeId) {
+            $query->where('employee_id', $employeeId);
+        }
+
+        // Group by user_id to correctly catch cases where employee_id was missing
+        $attendances = $query->get()->groupBy('user_id');
+
+        $shortLeaveDays = \App\Models\AttendanceSetting::getIntSetting('short_leave_consecutive_days', 2);
+        $halfDayDays = \App\Models\AttendanceSetting::getIntSetting('half_day_consecutive_days', 4);
+        $absentDays = \App\Models\AttendanceSetting::getIntSetting('absent_consecutive_days', 8);
+
+        $shortLeaveType = \App\Models\AttendanceSetting::getIntSetting('short_leave_type_id');
+        $halfDayType = \App\Models\AttendanceSetting::getIntSetting('half_day_leave_type_id');
+        $absentType = \App\Models\AttendanceSetting::getIntSetting('absent_leave_type_id');
+        $autoConvert = filter_var(\App\Models\AttendanceSetting::getSetting('auto_convert_late_to_leave', true), FILTER_VALIDATE_BOOLEAN);
+
+        foreach ($attendances as $userId => $userAttendances) {
+            if (!$userId) continue;
+
+            $empId = $userAttendances->first()->employee_id;
+            if (!$empId) {
+                $user = User::with('employee')->find($userId);
+                if ($user && $user->employee) {
+                    $empId = $user->employee->id;
+                }
+            }
+
+            $consecutiveLate = 0;
+            $streakAttendances = []; // store attendances for this streak
+            foreach ($userAttendances as $att) {
+                // If it's a holiday, it doesn't break or increment the streak
+                $attDate = ($att->date instanceof Carbon) ? $att->date->toDateString() : $att->date;
+                if (\App\Models\Holiday::isHoliday($attDate)) {
+                    continue;
+                }
+
+                if ($att->clock_in) {
+                    if ($att->exceeds_grace_period || $att->late_minutes > 0) {
+                        $consecutiveLate++;
+                        $streakAttendances[] = $att;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if ($autoConvert && $consecutiveLate > 0) {
+                $maxDay = max($absentDays, $halfDayDays, $shortLeaveDays);
+                $targetLeaveType = null;
+                $deduction = 0;
+
+                if ($maxDay > 0) {
+                    $effectiveLate = $consecutiveLate % $maxDay;
+                    if ($effectiveLate === 0) {
+                        $effectiveLate = $maxDay;
+                    }
+
+                    if ($absentDays > 0 && $effectiveLate === $absentDays) {
+                        $targetLeaveType = $absentType;
+                        $deduction = 1;
+                    } elseif ($halfDayDays > 0 && $effectiveLate === $halfDayDays) {
+                        $targetLeaveType = $halfDayType;
+                        $deduction = 0.5;
+                    } elseif ($shortLeaveDays > 0 && $effectiveLate === $shortLeaveDays) {
+                        $targetLeaveType = $shortLeaveType;
+                        $deduction = 0.25;
+                    }
+                }
+
+                if ($targetLeaveType) {
+                    $leaveQuery = \App\Models\Leave::where('from_date', $date)
+                        ->where('leave_type_id', $targetLeaveType);
+                    
+                    if ($empId) {
+                        $leaveQuery->where('employee_id', $empId);
+                    } else {
+                        $leaveQuery->where('user_id', $userId);
+                    }
+                    $existingLeave = $leaveQuery->first();
+
+                    if ($existingLeave) {
+                        // If leave already exists, just link it to the current attendance if not already linked
+                        $triggeringAttendance = $streakAttendances[0] ?? null;
+                        if ($triggeringAttendance && !$triggeringAttendance->converted_at) {
+                            $newStatus = 'present';
+                            if ($targetLeaveType == $absentType) {
+                                $newStatus = 'absent';
+                            } elseif ($targetLeaveType == $halfDayType) {
+                                $newStatus = 'half_day';
+                            } else {
+                                $newStatus = 'late';
+                            }
+
+                            $triggeringAttendance->update([
+                                'converted_at' => now(),
+                                'converted_leave_type' => $targetLeaveType,
+                                'status' => $newStatus
+                            ]);
+                        }
+                    } else {
+                        $approverId = Auth::id() ?? 1;
+                        $approverEmpId = null;
+                        $approver = User::with('employee')->find($approverId);
+                        if ($approver && $approver->employee) {
+                            $approverEmpId = $approver->employee->id;
+                        }
+
+                        $leave = \App\Models\Leave::create([
+                            'employee_id' => $empId,
+                            'user_id' => $userId,
+                            'leave_type_id' => $targetLeaveType,
+                            'from_date' => $date,
+                            'to_date' => $date,
+                            'reason' => "Auto-converted due to $consecutiveLate consecutive late days.",
+                            'status' => 'approved',
+                            'approved_by' => $approverEmpId,
+                            'approved_at' => now()
+                        ]);
+
+                        // Update the latest attendance record that triggered this
+                        $triggeringAttendance = $streakAttendances[0] ?? null;
+                        if ($triggeringAttendance) {
+                            $newStatus = 'present';
+                            if ($targetLeaveType == $absentType) {
+                                $newStatus = 'absent';
+                            } elseif ($targetLeaveType == $halfDayType) {
+                                $newStatus = 'half_day';
+                            } else {
+                                $newStatus = 'late';
+                            }
+
+                            $triggeringAttendance->update([
+                                'converted_at' => now(),
+                                'converted_leave_type' => $targetLeaveType,
+                                'status' => $newStatus
+                            ]);
+                        }
+
+                        $leaveTypeObj = \App\Models\LeaveType::find($targetLeaveType);
+                        
+                        $balanceQuery = [
+                            'leave_type_id' => $targetLeaveType,
+                            'year' => date('Y')
+                        ];
+                        if ($empId) {
+                            $balanceQuery['employee_id'] = $empId;
+                        } else {
+                            $balanceQuery['user_id'] = $userId;
+                        }
+
+                        $balance = \App\Models\LeaveBalance::firstOrCreate(
+                            $balanceQuery,
+                            [
+                                'user_id' => $userId,
+                                'employee_id' => $empId,
+                                'allocated' => $leaveTypeObj ? $leaveTypeObj->default_allocation : 0,
+                                'used' => 0,
+                                'balance' => $leaveTypeObj ? $leaveTypeObj->default_allocation : 0
+                            ]
+                        );
+
+                        $balance->used += $deduction;
+                        $balance->balance = $balance->allocated - $balance->used;
+                        $balance->save();
+                    }
+                }
+            }
+        }
+    }
+
+    public function getAttendanceWithRules(Request $request) {
+        return $this->index($request);
     }
 }

@@ -75,9 +75,9 @@ class Employee extends Model
     ];
 
     protected $casts = [
-        'date_of_birth' => 'date',
-        'start_date' => 'date',
-        'end_date' => 'date',
+        'date_of_birth' => 'date:Y-m-d',
+        'start_date' => 'date:Y-m-d',
+        'end_date' => 'date:Y-m-d',
         'joined_at' => 'datetime',
         'left_at' => 'datetime',
         'permanent_at' => 'datetime',
@@ -140,5 +140,40 @@ class Employee extends Model
             ->orWhere('employee_code', 'like', "%{$search}%")
             ->orWhere('id_number', 'like', "%{$search}%")
             ->orWhere('email', 'like', "%{$search}%");
+    }
+
+    /**
+     * Check if the employee is on leave on a specific date.
+     */
+    public function isOnLeave($date = null)
+    {
+        $date = $date ?: now()->toDateString();
+        return \App\Models\Leave::where('employee_id', $this->id)
+            ->where('status', 'approved')
+            ->whereDate('from_date', '<=', $date)
+            ->whereDate('to_date', '>=', $date)
+            ->exists();
+    }
+
+    /**
+     * Get all subordinates IDs recursively where intermediate managers are on leave.
+     * This is useful for finding whose leaves the current manager is responsible for.
+     */
+    public function getResponsibleSubordinateIds($date = null)
+    {
+        $date = $date ?: now()->toDateString();
+        $responsibleIds = [];
+
+        foreach ($this->subordinates as $subordinate) {
+            $responsibleIds[] = $subordinate->id;
+
+            // If the subordinate is a manager themselves AND is on leave,
+            // then the current manager is also responsible for their subordinates.
+            if ($subordinate->subordinates()->exists() && $subordinate->isOnLeave($date)) {
+                $responsibleIds = array_merge($responsibleIds, $subordinate->getResponsibleSubordinateIds($date));
+            }
+        }
+
+        return array_unique($responsibleIds);
     }
 }
