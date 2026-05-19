@@ -84,7 +84,6 @@ class LetterController extends Controller implements HasMiddleware
     {
         try {
             $data = $request->validated();
-            $data['ref_number'] = Letter::generateNextRefNumber();
             $letter = Letter::create($data);
 
             Log::info('Letter created', [
@@ -92,6 +91,7 @@ class LetterController extends Controller implements HasMiddleware
                 'letter_id' => $letter->id,
                 'ref_number' => $letter->ref_number,
                 'title' => $letter->title,
+                'letter_type' => $letter->letter_type,
                 'employee_name' => $letter->employee_name,
                 'nic_number' => $letter->nic_number,
                 'address_line1' => $letter->address_line1,

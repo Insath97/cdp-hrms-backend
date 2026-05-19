@@ -91,6 +91,8 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::get('leave-balances', [LeaveBalanceController::class, 'index']);
 
+    
+    Route::get('letters/list', [LetterController::class, 'getLetterList']);
     Route::apiResource('letters', LetterController::class);
 
     Route::prefix('attendances')->group(function () {

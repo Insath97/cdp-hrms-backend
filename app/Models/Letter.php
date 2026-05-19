@@ -11,27 +11,10 @@ class Letter extends Model
 {
     use HasFactory;
 
-    /**
-     * Generate the next reference number in the format 0001, 0002, etc.
-     */
-    public static function generateNextRefNumber(): string
-    {
-        $latestLetter = self::orderBy('id', 'desc')->first();
-
-        if (!$latestLetter || !$latestLetter->ref_number) {
-            return '0001';
-        }
-
-        $latestRefNumber = $latestLetter->ref_number;
-        $numericPart = (int) $latestRefNumber;
-        $nextNumber = $numericPart + 1;
-
-        return str_pad($nextNumber, 4, '0', STR_PAD_LEFT);
-    }
-
     protected $fillable = [
         'ref_number',
         'title',
+        'letter_type',
         'employee_name',
         'nic_number',
         'address_line1',
