@@ -23,6 +23,7 @@ use App\Http\Controllers\V1\PayrollAdminController;
 use App\Http\Controllers\V1\ImportController;
 use App\Http\Controllers\V1\LeaveBalanceController;
 use App\Http\Controllers\V1\HolidayController;
+use App\Http\Controllers\V1\AttendanceUpdateRequestController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -103,6 +104,12 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
         Route::post('process-rules', [AttendanceController::class, 'processRules']);
         Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
+        
+        // Attendance Update Requests
+        Route::get('update-requests', [AttendanceUpdateRequestController::class, 'index']);
+        Route::get('update-requests/{id}', [AttendanceUpdateRequestController::class, 'show']);
+        Route::post('update-requests/{id}/approve', [AttendanceUpdateRequestController::class, 'approve']);
+        Route::post('update-requests/{id}/reject', [AttendanceUpdateRequestController::class, 'reject']);
     });
     Route::put('attendances', [AttendanceController::class, 'update']);
     Route::apiResource('attendances', AttendanceController::class);
