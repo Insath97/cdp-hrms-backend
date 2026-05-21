@@ -77,7 +77,7 @@ class BulkImportService
                 'dependencies' => [
                     'department_code' => ['model' => Department::class, 'field' => 'code', 'foreign_key' => 'department_id'],
                 ],
-                'fillable' => ['name', 'code', 'department_id', 'level', 'description', 'is_active'],
+                'fillable' => ['name', 'code', 'department_id', 'monthly_target', 'basic_salary', 'travel_reimbursement', 'vehicle_rental', 'performance_allowance', 'incentive', 'position_allowance', 'total_package', 'level', 'is_active'],
             ],
             'employees' => [
                 'model' => Employee::class,
