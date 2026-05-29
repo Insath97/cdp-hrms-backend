@@ -71,6 +71,8 @@ class Employee extends Model
         'bank_branch',
         'account_number',
         'description',
+        'extended_until',
+        'extension_reason',
         'is_active'
     ];
 
@@ -78,6 +80,7 @@ class Employee extends Model
         'date_of_birth' => 'date:Y-m-d',
         'start_date' => 'date:Y-m-d',
         'end_date' => 'date:Y-m-d',
+        'extended_until' => 'date:Y-m-d',
         'joined_at' => 'datetime',
         'left_at' => 'datetime',
         'permanent_at' => 'datetime',

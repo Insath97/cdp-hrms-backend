@@ -32,11 +32,11 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     // Login endpoint
     Route::post('login', [AuthController::class, 'login']);
-    
+
     // Public employee verification (for QR code scanning)
     Route::get('public/verify-employee/{employeeCode}', [EmployeeController::class, 'verifyByCode'])
         ->name('public.verify.employee');
-    
+
     // Add other public routes here if needed
     // Route::get('public/...', ...);
 });
@@ -92,7 +92,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::get('leave-balances', [LeaveBalanceController::class, 'index']);
 
-    
+
     Route::get('letters/list', [LetterController::class, 'getLetterList']);
     Route::apiResource('letters', LetterController::class);
 
@@ -104,7 +104,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
         Route::post('process-rules', [AttendanceController::class, 'processRules']);
         Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
-        
+
         // Attendance Update Requests
         Route::get('update-requests', [AttendanceUpdateRequestController::class, 'index']);
         Route::get('update-requests/{id}', [AttendanceUpdateRequestController::class, 'show']);
@@ -128,13 +128,13 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('/sync', [HolidayController::class, 'sync']);
     });
 
-    
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);
     Route::delete('employees/{employee}/force-delete', [EmployeeController::class, 'forceDelete']);
     Route::patch('employees/{employee}/toggle-status', [EmployeeController::class, 'toggleStatus']);
     Route::patch('employees/{employee}/make-permanent', [EmployeeController::class, 'makePermanent']);
     Route::post('employees/{employee}/terminate', [EmployeeController::class, 'terminate']);
+    Route::post('employees/{employee}/extend', [EmployeeController::class, 'extend']);
     Route::apiResource('employees', EmployeeController::class);
 
     Route::patch('users/{id}/toggle-status', [UserController::class, 'toggleStatus']);
@@ -142,26 +142,26 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     // Fingerprint Device Routes
     Route::prefix('fingerprint')->middleware(['auth:sanctum', 'permission:manage fingerprint'])->group(function () {
-        
+
         // Device Management
         Route::get('/test-connection', [FingerprintController::class, 'testConnection']);
         Route::get('/device-info', [FingerprintController::class, 'getDeviceInfo']);
         Route::get('/device-users', [FingerprintController::class, 'getDeviceUsers']);
         Route::get('/device-statistics', [FingerprintController::class, 'getDeviceStatistics']);
-        
+
         // Attendance Logs
         Route::get('/attendance-logs', [FingerprintController::class, 'getAttendanceLogs']);
         Route::get('/attendance-today', [FingerprintController::class, 'getTodayAttendance']);
-        
+
         // Sync Operations
         Route::post('/sync-user', [FingerprintController::class, 'syncUserToDevice']);
         Route::post('/sync-attendance', [FingerprintController::class, 'syncAttendanceToHRMS']);
         Route::get('/compare-attendance', [FingerprintController::class, 'compareAttendance']);
-        
+
         // Fingerprint Management
         Route::post('/register-fingerprint', [FingerprintController::class, 'registerFingerprint']);
         Route::delete('/delete-fingerprint', [FingerprintController::class, 'deleteFingerprint']);
-        
+
         // Manual Operations
         Route::post('/manual-attendance', [FingerprintController::class, 'manualAttendance']);
     });
@@ -169,7 +169,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // Webhook endpoint (no authentication, device will call this)
     Route::post('/webhooks/fingerprint', [FingerprintWebhookController::class, 'handleWebhook']);
 
-    
+
     // Employee routes
     Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/payroll', [PayrollController::class, 'index']);

@@ -21,7 +21,7 @@ class EmployeeController extends Controller implements HasMiddleware
         return [
             new Middleware('permission:Employee Index', only: ['index', 'show', 'getEmployeeList']),
             new Middleware('permission:Employee Create', only: ['store']),
-            new Middleware('permission:Employee Update', only: ['update', 'makePermanent', 'terminate']),
+            new Middleware('permission:Employee Update', only: ['update', 'makePermanent', 'terminate', 'extend']),
             new Middleware('permission:Employee Delete', only: ['destroy', 'forceDelete']),
             new Middleware('permission:Employee Restore', only: ['restore']),
             new Middleware('permission:Employee Toggle Status', only: ['toggleStatus']),
@@ -392,6 +392,55 @@ class EmployeeController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to terminate employee',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    public function extend(Request $request, string $id)
+    {
+        try {
+            $request->validate([
+                'extended_until' => 'required|date',
+                'extension_reason' => 'required|string|max:1000'
+            ]);
+
+            $employee = Employee::find($id);
+
+            if (!$employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found'
+                ], 404);
+            }
+
+            $employee->update([
+                'extended_until' => $request->extended_until,
+                'extension_reason' => $request->extension_reason,
+                'end_date' => $request->extended_until
+            ]);
+
+            Log::info('Employee extended', [
+                'user_id' => Auth::id(),
+                'employee_id' => $employee->id,
+                'extended_until' => $request->extended_until,
+                'reason' => $request->extension_reason
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employee extended successfully',
+                'data' => $employee
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to extend employee', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to extend employee',
                 'error' => $th->getMessage()
             ], 500);
         }
