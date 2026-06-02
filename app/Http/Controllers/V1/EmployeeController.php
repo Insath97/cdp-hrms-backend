@@ -8,14 +8,15 @@ use App\Http\Requests\UpdateEmployeeRequest;
 use App\Models\Employee;
 use App\Traits\FileUploadTrait;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class EmployeeController extends Controller implements HasMiddleware
 {
     use FileUploadTrait;
+
     public static function middleware(): array
     {
         return [
@@ -60,27 +61,34 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employees = $query->paginate($perPage);
 
+            $employeesArray = $employees->toArray();
+            foreach ($employeesArray['data'] as &$employee) {
+                if (isset($employee['joined_at']) && $employee['joined_at']) {
+                    $employee['joined_at'] = date('Y-m-d', strtotime($employee['joined_at']));
+                }
+            }
+
             Log::info('Employees index accessed', [
                 'user_id' => Auth::id(),
                 'filters' => $request->only(['search', 'department_id', 'designation_id', 'branch_id', 'is_active', 'employment_status', 'per_page']),
-                'count' => $employees->count()
+                'count' => $employees->count(),
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employees retrieved successfully',
-                'data' => $employees
+                'data' => $employees,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to retrieve employees', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve employees',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -96,7 +104,7 @@ class EmployeeController extends Controller implements HasMiddleware
 
             // Handle profile image upload
             if ($request->hasFile('profile_image')) {
-                $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', null, 'employees', $data['employee_code'] . '_profile');
+                $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', null, 'employees', $data['employee_code'].'_profile');
             }
 
             $employee = Employee::create($data);
@@ -104,24 +112,24 @@ class EmployeeController extends Controller implements HasMiddleware
             Log::info('Employee created', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
-                'employee_code' => $employee->employee_code
+                'employee_code' => $employee->employee_code,
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employee created successfully',
-                'data' => $employee
+                'data' => $employee,
             ], 201);
         } catch (\Throwable $th) {
             Log::error('Failed to create employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to create employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -137,36 +145,36 @@ class EmployeeController extends Controller implements HasMiddleware
                 'region',
                 'province',
                 'reportingManager',
-                'subordinates'
+                'subordinates',
             ])->find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
             Log::info('Employee viewed', [
                 'user_id' => Auth::id(),
-                'employee_id' => $employee->id
+                'employee_id' => $employee->id,
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employee retrieved successfully',
-                'data' => $employee
+                'data' => $employee,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to retrieve employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -176,10 +184,10 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $employee = Employee::find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
@@ -187,7 +195,7 @@ class EmployeeController extends Controller implements HasMiddleware
 
             // Handle profile image upload
             if ($request->hasFile('profile_image')) {
-                $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', $employee->profile_image, 'employees', $employee->employee_code . '_profile');
+                $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', $employee->profile_image, 'employees', $employee->employee_code.'_profile');
             }
 
             $employee->update($data);
@@ -195,24 +203,24 @@ class EmployeeController extends Controller implements HasMiddleware
             Log::info('Employee updated', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
-                'updated_fields' => array_keys($data)
+                'updated_fields' => array_keys($data),
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employee updated successfully',
-                'data' => $employee
+                'data' => $employee,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to update employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to update employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -222,17 +230,17 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $employee = Employee::find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
-            if (!Auth::user()->hasRole('Super Admin')) {
+            if (! Auth::user()->hasRole('Super Admin')) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Only Super Admin can delete employees'
+                    'message' => 'Only Super Admin can delete employees',
                 ], 403);
             }
 
@@ -241,23 +249,23 @@ class EmployeeController extends Controller implements HasMiddleware
             Log::info('Employee deleted', [
                 'user_id' => Auth::id(),
                 'employee_id' => $id,
-                'employee_code' => $employee->employee_code
+                'employee_code' => $employee->employee_code,
             ]);
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Employee deleted successfully'
+                'message' => 'Employee deleted successfully',
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to delete employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to delete employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -267,20 +275,20 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $employee = Employee::find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
-            $employee->is_active = !$employee->is_active;
+            $employee->is_active = ! $employee->is_active;
             $employee->save();
 
             Log::info('Employee status toggled', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
-                'new_status' => $employee->is_active
+                'new_status' => $employee->is_active,
             ]);
 
             return response()->json([
@@ -288,19 +296,19 @@ class EmployeeController extends Controller implements HasMiddleware
                 'message' => 'Employee status updated successfully',
                 'data' => [
                     'id' => $employee->id,
-                    'is_active' => $employee->is_active
-                ]
+                    'is_active' => $employee->is_active,
+                ],
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to toggle employee status', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle employee status',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -310,10 +318,10 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $employee = Employee::find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
@@ -321,29 +329,29 @@ class EmployeeController extends Controller implements HasMiddleware
                 'employee_type' => 'permanent',
                 'permanent_at' => now(),
                 'employment_status' => 'active',
-                'is_active' => true
+                'is_active' => true,
             ]);
 
             Log::info('Employee made permanent', [
                 'user_id' => Auth::id(),
-                'employee_id' => $employee->id
+                'employee_id' => $employee->id,
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employee status updated to permanent',
-                'data' => $employee
+                'data' => $employee,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to update employee to permanent', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to update employee status',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -353,15 +361,15 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $request->validate([
                 'termination_reason' => 'required|string|max:1000',
-                'left_at' => 'sometimes|date'
+                'left_at' => 'sometimes|date',
             ]);
 
             $employee = Employee::find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
@@ -369,30 +377,30 @@ class EmployeeController extends Controller implements HasMiddleware
                 'employment_status' => 'terminated',
                 'is_active' => false,
                 'termination_reason' => $request->termination_reason,
-                'left_at' => $request->left_at ?? now()
+                'left_at' => $request->left_at ?? now(),
             ]);
 
             Log::info('Employee terminated', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
-                'reason' => $request->termination_reason
+                'reason' => $request->termination_reason,
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employee terminated successfully',
-                'data' => $employee
+                'data' => $employee,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to terminate employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to terminate employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -402,46 +410,46 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $request->validate([
                 'extended_until' => 'required|date',
-                'extension_reason' => 'required|string|max:1000'
+                'extension_reason' => 'required|string|max:1000',
             ]);
 
             $employee = Employee::find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
             $employee->update([
                 'extended_until' => $request->extended_until,
                 'extension_reason' => $request->extension_reason,
-                'end_date' => $request->extended_until
+                'end_date' => $request->extended_until,
             ]);
 
             Log::info('Employee extended', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
                 'extended_until' => $request->extended_until,
-                'reason' => $request->extension_reason
+                'reason' => $request->extension_reason,
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employee extended successfully',
-                'data' => $employee
+                'data' => $employee,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to extend employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to extend employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -451,17 +459,17 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $employee = Employee::withTrashed()->find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
-            if (!$employee->trashed()) {
+            if (! $employee->trashed()) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee is not deleted'
+                    'message' => 'Employee is not deleted',
                 ], 422);
             }
 
@@ -469,24 +477,24 @@ class EmployeeController extends Controller implements HasMiddleware
 
             Log::info('Employee restored', [
                 'user_id' => Auth::id(),
-                'employee_id' => $id
+                'employee_id' => $id,
             ]);
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employee restored successfully',
-                'data' => $employee
+                'data' => $employee,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to restore employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to restore employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -496,17 +504,17 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $employee = Employee::withTrashed()->find($id);
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found'
+                    'message' => 'Employee not found',
                 ], 404);
             }
 
-            if (!Auth::user()->hasRole('Super Admin')) {
+            if (! Auth::user()->hasRole('Super Admin')) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Only Super Admin can permanently delete employees'
+                    'message' => 'Only Super Admin can permanently delete employees',
                 ], 403);
             }
 
@@ -514,23 +522,23 @@ class EmployeeController extends Controller implements HasMiddleware
 
             Log::info('Employee permanently deleted', [
                 'user_id' => Auth::id(),
-                'employee_id' => $id
+                'employee_id' => $id,
             ]);
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Employee permanently deleted'
+                'message' => 'Employee permanently deleted',
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to force delete employee', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to permanently delete employee',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
@@ -556,26 +564,26 @@ class EmployeeController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Employees retrieved successfully',
-                'data' => $employees
+                'data' => $employees,
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to retrieve employee list', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve employees',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
 
     /**
-    * Public API to verify employee details by employee code
-    * No authentication required
-    */
+     * Public API to verify employee details by employee code
+     * No authentication required
+     */
     public function verifyByCode(string $employeeCode)
     {
         try {
@@ -584,17 +592,17 @@ class EmployeeController extends Controller implements HasMiddleware
                 'department:id,name',
                 'designation:id,name',
                 'branch:id,name',
-                'reportingManager:id,full_name,employee_code'
+                'reportingManager:id,full_name,employee_code',
             ])
-            ->where('employee_code', $employeeCode)
-            ->where('is_active', true)
-            ->whereNotIn('employment_status', ['terminated', 'resigned'])
-            ->first();
+                ->where('employee_code', $employeeCode)
+                ->where('is_active', true)
+                ->whereNotIn('employment_status', ['terminated', 'resigned'])
+                ->first();
 
-            if (!$employee) {
+            if (! $employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Employee not found or not active'
+                    'message' => 'Employee not found or not active',
                 ], 404);
             }
 
@@ -612,33 +620,33 @@ class EmployeeController extends Controller implements HasMiddleware
                     'joined_at' => $employee->joined_at?->format('Y-m-d'),
                     'department' => $employee->department ? [
                         'id' => $employee->department->id,
-                        'name' => $employee->department->name
+                        'name' => $employee->department->name,
                     ] : null,
                     'designation' => $employee->designation ? [
                         'id' => $employee->designation->id,
-                        'name' => $employee->designation->name
+                        'name' => $employee->designation->name,
                     ] : null,
                     'branch' => $employee->branch ? [
                         'id' => $employee->branch->id,
-                        'name' => $employee->branch->name
+                        'name' => $employee->branch->name,
                     ] : null,
                     'reporting_manager' => $employee->reportingManager ? [
                         'full_name' => $employee->reportingManager->full_name,
-                        'employee_code' => $employee->reportingManager->employee_code
+                        'employee_code' => $employee->reportingManager->employee_code,
                     ] : null,
                     'verification_url' => url("/verify/{$employee->employee_code}"),
-                    'verified_at' => now()->toIso8601String()
-                ]
+                    'verified_at' => now()->toIso8601String(),
+                ],
             ], 200);
         } catch (\Throwable $th) {
             Log::error('Failed to verify employee', [
                 'employee_code' => $employeeCode,
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to verify employee'
+                'message' => 'Failed to verify employee',
             ], 500);
         }
     }

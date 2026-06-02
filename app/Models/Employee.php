@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 class Employee extends Model
 {
@@ -19,7 +20,7 @@ class Employee extends Model
     {
         $latestEmployee = self::orderBy('id', 'desc')->first();
 
-        if (!$latestEmployee || !$latestEmployee->employee_code) {
+        if (! $latestEmployee || ! $latestEmployee->employee_code) {
             return 'RT00000001';
         }
 
@@ -27,7 +28,7 @@ class Employee extends Model
         $numericPart = preg_replace('/[^0-9]/', '', $latestCode);
         $nextNumber = (int) $numericPart + 1;
 
-        return 'RT' . str_pad($nextNumber, 8, '0', STR_PAD_LEFT);
+        return 'RT'.str_pad($nextNumber, 8, '0', STR_PAD_LEFT);
     }
 
     protected $fillable = [
@@ -73,7 +74,7 @@ class Employee extends Model
         'description',
         'extended_until',
         'extension_reason',
-        'is_active'
+        'is_active',
     ];
 
     protected $casts = [
@@ -81,13 +82,22 @@ class Employee extends Model
         'start_date' => 'date:Y-m-d',
         'end_date' => 'date:Y-m-d',
         'extended_until' => 'date:Y-m-d',
-        'joined_at' => 'datetime',
-        'left_at' => 'datetime',
-        'permanent_at' => 'datetime',
+        'left_at' => 'date:Y-m-d',
+        'permanent_at' => 'date:Y-m-d',
         'basic_salary' => 'decimal:2',
         'is_active' => 'boolean',
-        'have_whatsapp' => 'boolean'
+        'have_whatsapp' => 'boolean',
     ];
+
+    public function getJoinedAtAttribute($value)
+    {
+        return $value ? date('Y-m-d', strtotime($value)) : null;
+    }
+
+    protected function serializeDate(DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d');
+    }
 
     // Relationships
     public function reportingManager(): BelongsTo
@@ -151,6 +161,7 @@ class Employee extends Model
     public function isOnLeave($date = null)
     {
         $date = $date ?: now()->toDateString();
+
         return \App\Models\Leave::where('employee_id', $this->id)
             ->where('status', 'approved')
             ->whereDate('from_date', '<=', $date)

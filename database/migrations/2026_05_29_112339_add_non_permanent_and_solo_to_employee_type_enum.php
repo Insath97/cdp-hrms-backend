@@ -1,7 +1,8 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -10,7 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE employees MODIFY COLUMN employee_type ENUM('permanent', 'contract', 'internship', 'probation', 'non_permanent', 'solo') NOT NULL DEFAULT 'permanent'");
+        Schema::table('employees', function (Blueprint $table) {
+           DB::statement("ALTER TABLE employees MODIFY COLUMN employee_type ENUM('permanent', 'contract', 'internship', 'probation', 'non_permanent', 'solo') DEFAULT 'permanent'");
+        });
     }
 
     /**
@@ -18,8 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('employee_type_enum', function (Blueprint $table) {
-            //
+        Schema::table('employees', function (Blueprint $table) {
+            DB::statement("ALTER TABLE employees MODIFY COLUMN employee_type ENUM('permanent', 'contract', 'internship', 'probation', 'non_permanent') DEFAULT 'permanent'");
         });
     }
 };

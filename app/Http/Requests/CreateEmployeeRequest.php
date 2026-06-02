@@ -2,25 +2,17 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
 class CreateEmployeeRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
         return [
@@ -37,11 +29,11 @@ class CreateEmployeeRequest extends FormRequest
             'branch_id' => 'nullable|exists:branches,id',
             'department_id' => 'nullable|exists:departments,id',
             'designation_id' => 'required|exists:designations,id',
-            'employee_type' => 'required|in:permanent,contract,internship,probation,non_permanent,solo',
+            'employee_type' => ['required', 'in:permanent,contract,internship,probation,non_permanent,solo'],
             'id_type' => 'required|in:nic,passport,driving_license,other',
             'id_number' => 'required|string|unique:employees,id_number|max:50',
             'date_of_birth' => 'required|date',
-            'email' => 'nullable|email|unique:employees,email|max:255',
+            'email' => 'sometimes|nullable|email|unique:employees,email|max:255', // Fixed: Added 'sometimes'
             'phone' => 'nullable|string|max:20',
             'address_line_1' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:100',
@@ -67,6 +59,30 @@ class CreateEmployeeRequest extends FormRequest
         ];
     }
 
+    /**
+     * Prepare the data for validation
+     */
+    protected function prepareForValidation(): void
+    {
+        // Convert empty strings to null for nullable fields
+        $nullableFields = [
+            'email', 'phone', 'phone_secondary', 'whatsapp_number',
+            'address_line_1', 'city', 'state', 'postal_code',
+            'bank_name', 'bank_branch', 'account_number', 'description'
+        ];
+
+        $merge = [];
+        foreach ($nullableFields as $field) {
+            if ($this->has($field) && $this->input($field) === '') {
+                $merge[$field] = null;
+            }
+        }
+
+        if (!empty($merge)) {
+            $this->merge($merge);
+        }
+    }
+
     protected function failedValidation(Validator $validator)
     {
         $errorMessages = $validator->errors();
@@ -80,7 +96,7 @@ class CreateEmployeeRequest extends FormRequest
 
         $message = $fieldErrors->count() > 1
             ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
+            : 'There is an issue with the input for '.$fieldErrors->first()['field'].'.';
 
         throw new HttpResponseException(response()->json([
             'message' => $message,
