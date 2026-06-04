@@ -93,46 +93,167 @@ class EmployeeController extends Controller implements HasMiddleware
         }
     }
 
+    // public function store(CreateEmployeeRequest $request)
+    // {
+    //     try {
+    //         $data = $request->validated();
+
+    //         if (empty($data['employee_code'])) {
+    //             $data['employee_code'] = Employee::generateNextEmployeeCode();
+    //         }
+
+    //         // Handle profile image upload
+    //         if ($request->hasFile('profile_image')) {
+    //             $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', null, 'employees', $data['employee_code'].'_profile');
+    //         }
+
+    //         $employee = Employee::create($data);
+
+    //         Log::info('Employee created', [
+    //             'user_id' => Auth::id(),
+    //             'employee_id' => $employee->id,
+    //             'employee_code' => $employee->employee_code,
+    //         ]);
+
+    //         return response()->json([
+    //             'status' => 'success',
+    //             'message' => 'Employee created successfully',
+    //             'data' => $employee,
+    //         ], 201);
+    //     } catch (\Throwable $th) {
+    //         Log::error('Failed to create employee', [
+    //             'user_id' => Auth::id(),
+    //             'error' => $th->getMessage(),
+    //         ]);
+
+    //         return response()->json([
+    //             'status' => 'error',
+    //             'message' => 'Failed to create employee',
+    //             'error' => $th->getMessage(),
+    //         ], 500);
+    //     }
+    // }
+
     public function store(CreateEmployeeRequest $request)
-    {
-        try {
-            $data = $request->validated();
+{
+    try {
+        $data = $request->validated();
 
-            if (empty($data['employee_code'])) {
-                $data['employee_code'] = Employee::generateNextEmployeeCode();
-            }
-
-            // Handle profile image upload
-            if ($request->hasFile('profile_image')) {
-                $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', null, 'employees', $data['employee_code'].'_profile');
-            }
-
-            $employee = Employee::create($data);
-
-            Log::info('Employee created', [
-                'user_id' => Auth::id(),
-                'employee_id' => $employee->id,
-                'employee_code' => $employee->employee_code,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Employee created successfully',
-                'data' => $employee,
-            ], 201);
-        } catch (\Throwable $th) {
-            Log::error('Failed to create employee', [
-                'user_id' => Auth::id(),
-                'error' => $th->getMessage(),
-            ]);
-
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to create employee',
-                'error' => $th->getMessage(),
-            ], 500);
+        if (empty($data['employee_code'])) {
+            $data['employee_code'] = Employee::generateNextEmployeeCode();
         }
+
+        // Handle profile image upload
+        if ($request->hasFile('profile_image')) {
+            $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', null, 'employees', $data['employee_code'].'_profile');
+        }
+
+        // Create the employee first
+        $employee = Employee::create($data);
+
+        // Automatically create a corresponding user account
+        try {
+            // Generate username from employee code or email
+            $username = $data['employee_code'];
+
+            // Use email if provided, otherwise set to null
+            $email = !empty($data['email']) ? $data['email'] : null;
+
+            // Generate a random password (will be sent via email)
+            $rawPassword = \Illuminate\Support\Str::random(10);
+
+            // Use user_type from request if provided, otherwise default to 'staff'
+            $userType = $data['user_type'] ?? 'staff';
+
+            // Use role from request if provided, otherwise derive from user_type
+            $roleValue = $data['role'] ?? (($userType === 'admin') ? 'Admin' : 'Staff');
+
+            // Create the user
+            $user = \App\Models\User::create([
+                'employee_id' => $employee->id,
+                'name' => $data['full_name'],
+                'username' => $username,
+                'email' => $email,
+                'password' => \Illuminate\Support\Facades\Hash::make($rawPassword),
+                'user_type' => $userType,
+                'role' => $roleValue,
+                'is_active' => true,
+                'can_login' => true,
+            ]);
+
+            // Send welcome email with credentials
+            try {
+                if (!empty($user->email)) {
+                    $emailData = [
+                        'user' => $user->toArray(),
+                        'password' => $rawPassword,
+                        'role' => $roleValue,
+                        'employee_code' => $employee->employee_code,
+                        'created_by' => Auth::user()?->name ?? 'System',
+                        'login_url' => config('app.frontend_url') ?? config('app.url'),
+                    ];
+
+                    \Illuminate\Support\Facades\Mail::to($user->email)->send(new \App\Mail\UserCreateMail($emailData));
+
+                    Log::info('User account created for employee', [
+                        'employee_id' => $employee->id,
+                        'user_id' => $user->id
+                    ]);
+                } else {
+                    Log::info('User account created for employee (no email to send welcome message)', [
+                        'employee_id' => $employee->id,
+                        'user_id' => $user->id
+                    ]);
+                }
+            } catch (\Throwable $mailError) {
+                Log::warning('Failed to send welcome email for employee user account', [
+                    'employee_id' => $employee->id,
+                    'error' => $mailError->getMessage()
+                ]);
+                // Don't fail the employee creation if email fails
+            }
+
+        } catch (\Throwable $userError) {
+            Log::error('Failed to create user account for employee', [
+                'employee_id' => $employee->id,
+                'error' => $userError->getMessage()
+            ]);
+            // Rollback employee creation if user creation fails
+            $employee->delete();
+            throw $userError;
+        }
+
+        Log::info('Employee created with user account', [
+            'user_id' => Auth::id(),
+            'employee_id' => $employee->id,
+            'employee_code' => $employee->employee_code,
+        ]);
+
+        // Load relationships for response
+        $employee->load(['department', 'designation', 'branch', 'reportingManager']);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Employee created successfully with user account',
+            'data' => [
+                'employee' => $employee,
+                'user' => $user ?? null
+            ],
+        ], 201);
+
+    } catch (\Throwable $th) {
+        Log::error('Failed to create employee', [
+            'user_id' => Auth::id(),
+            'error' => $th->getMessage(),
+        ]);
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to create employee',
+            'error' => $th->getMessage(),
+        ], 500);
     }
+}
 
     public function show(string $id)
     {

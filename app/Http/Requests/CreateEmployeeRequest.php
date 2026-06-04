@@ -55,6 +55,10 @@ class CreateEmployeeRequest extends FormRequest
             'bank_branch' => 'nullable|string|max:255',
             'account_number' => 'nullable|string|max:50',
             'description' => 'nullable|string',
+            'username' => 'required|string|max:255|unique:users,username',
+            'password' => 'required|string|min:8',
+            'user_type' => 'sometimes|in:admin,staff',
+            'role' => 'sometimes|string|max:255',
             'is_active' => 'sometimes|boolean',
         ];
     }

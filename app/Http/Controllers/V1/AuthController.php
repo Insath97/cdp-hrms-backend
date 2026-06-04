@@ -18,7 +18,7 @@ class AuthController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'email' => 'required|string|email',
+                'username' => 'required|string',
                 'password' => 'required|string'
             ]);
 
@@ -30,13 +30,20 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $credentials = $request->only('email', 'password');
+            $usernameOrEmail = $request->input('username');
+            $password = $request->input('password');
 
+            // Try to authenticate using username first
+            $credentials = ['username' => $usernameOrEmail, 'password' => $password];
             if (!$token = Auth::guard('api')->attempt($credentials)) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Invalid credentials'
-                ], 401);
+                // If username fails, try email
+                $credentials = ['email' => $usernameOrEmail, 'password' => $password];
+                if (!$token = Auth::guard('api')->attempt($credentials)) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Invalid credentials'
+                    ], 401);
+                }
             }
 
             $user = auth('api')->user();
@@ -49,13 +56,6 @@ class AuthController extends Controller
                 ], 401);
             }
 
-            if (!$user->roles()->exists()) {
-                Auth::guard('api')->logout();
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No admin role assigned. Please contact Super Admin.'
-                ], 403);
-            }
 
             $user->updateLastLogin($request->ip());
 
@@ -138,9 +138,9 @@ class AuthController extends Controller
     {
         try {
             $user = auth('api')->user();
-            
+
             $user->load(['employee', 'roles.permissions']);
-            
+
             // Hide pivot tables
             if ($user->relationLoaded('roles')) {
                 $user->roles->each->makeHidden(['pivot']);
@@ -150,7 +150,7 @@ class AuthController extends Controller
                     }
                 });
             }
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'User details fetched successfully',

@@ -170,14 +170,22 @@ class BulkImportService
             // Clean all data (remove empty strings, trim)
             $data = $this->cleanData($data);
 
-            // Preprocess data if it's employees
+            // Preprocess data if it's employees and extract user data
+            $userData = null;
             if ($table === 'employees') {
+                $userData = $this->extractUserData($data);
                 $data = $this->preprocessEmployeeData($data);
             }
 
             DB::beginTransaction();
             try {
-                $this->processGenericRow($config, $data);
+                $employee = $this->processGenericRow($config, $data);
+
+                // Create user account if user data is provided for employees
+                if ($table === 'employees' && $userData && $employee) {
+                    $this->createUserForEmployee($employee, $userData);
+                }
+
                 DB::commit();
                 $results['imported']++;
             } catch (\Throwable $e) {
@@ -209,6 +217,79 @@ class BulkImportService
             }
         }
         return $cleaned;
+    }
+
+    /**
+     * Extract user data from employee data (username, password, user_type)
+     */
+    protected function extractUserData(array &$data): ?array
+    {
+        $userData = null;
+
+        // Check if any user fields are provided
+        if (isset($data['username']) || isset($data['password']) || isset($data['user_type']) || isset($data['role'])) {
+            $userData = [
+                'username' => $data['username'] ?? null,
+                'password' => $data['password'] ?? null,
+                'user_type' => $data['user_type'] ?? 'staff',
+                'role' => $data['role'] ?? null,
+            ];
+
+            // Remove user fields from employee data
+            unset($data['username']);
+            unset($data['password']);
+            unset($data['user_type']);
+            unset($data['role']);
+        }
+
+        return $userData;
+    }
+
+    /**
+     * Create user account for imported employee
+     */
+    protected function createUserForEmployee(Employee $employee, array $userData): void
+    {
+        // Validate required user data
+        if (empty($userData['username'])) {
+            throw new \Exception('Username is required to create user account');
+        }
+
+        if (empty($userData['password'])) {
+            throw new \Exception('Password is required to create user account');
+        }
+
+        // Check if user with this username already exists
+        if (User::where('username', $userData['username'])->exists()) {
+            throw new \Exception("Username '{$userData['username']}' already exists in the system");
+        }
+
+        // Determine user type and role
+        $userType = $userData['user_type'] ?? 'staff';
+        $roleValue = $userData['role'] ?? (($userType === 'admin') ? 'Admin' : 'Staff');
+        $roleAssigned = $roleValue;
+
+        // Create user account with role
+        $user = User::create([
+            'employee_id' => $employee->id,
+            'name' => $employee->full_name,
+            'username' => $userData['username'],
+            'email' => $employee->email, // Use employee email
+            'password' => Hash::make($userData['password']),
+            'user_type' => $userType,
+            'role' => $roleValue,
+            'is_active' => true,
+            'can_login' => true,
+        ]);
+
+        Log::info('User account created during employee bulk import', [
+            'employee_id' => $employee->id,
+            'user_id' => $user->id,
+            'username' => $userData['username'],
+            'user_type' => $userType,
+            'role_assigned' => $roleAssigned,
+            'user_type_provided' => isset($userData['user_type'])
+        ]);
     }
 
     /**
@@ -356,8 +437,9 @@ class BulkImportService
 
     /**
      * Generic row processing using config.
+     * Returns the created/updated model instance for employees.
      */
-    protected function processGenericRow(array $config, array $data): void
+    protected function processGenericRow(array $config, array $data)
     {
         $modelClass = $config['model'];
         $uniqueKeyField = $config['unique_key'];
@@ -420,14 +502,14 @@ class BulkImportService
                     throw new \Exception("No valid unique key fields provided");
                 }
 
-                $modelClass::updateOrCreate($conditions, $filteredData);
+                return $modelClass::updateOrCreate($conditions, $filteredData);
             } else {
                 // Single unique key
                 if (!isset($filteredData[$uniqueKeyField])) {
                     throw new \Exception("Unique key field '{$uniqueKeyField}' is missing from data");
                 }
 
-                $modelClass::updateOrCreate(
+                return $modelClass::updateOrCreate(
                     [$uniqueKeyField => $filteredData[$uniqueKeyField]],
                     $filteredData
                 );
@@ -452,6 +534,11 @@ class BulkImportService
             $headers = $config['fillable'];
             if (isset($config['dependencies'])) {
                 $headers = array_merge($headers, array_keys($config['dependencies']));
+            }
+
+            // Add optional user fields for employees table
+            if ($table === 'employees') {
+                $headers = array_merge($headers, ['username', 'password', 'user_type']);
             }
 
             $list[] = [
