@@ -118,9 +118,8 @@ class UserController extends Controller implements HasMiddleware
             $user = User::create($data);
 
             // Assign Role
-            if (isset($data['role'])) {
-                $user->assignRole($data['role']);
-            }
+            $user->assignRole($data['role']);
+
 
             // Send Welcome Email
             try {

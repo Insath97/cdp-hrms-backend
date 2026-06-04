@@ -266,10 +266,19 @@ class BulkImportService
 
         // Determine user type and role
         $userType = $userData['user_type'] ?? 'staff';
-        $roleValue = $userData['role'] ?? (($userType === 'admin') ? 'Admin' : 'Staff');
-        $roleAssigned = $roleValue;
+        $roleValue = $userData['role'] ?? null; // Get role from import data
 
-        // Create user account with role
+        // Validate role if provided (optional: check if role exists in your system)
+        if ($roleValue && !\Spatie\Permission\Models\Role::where('name', $roleValue)->exists()) {
+            Log::warning('Role does not exist during bulk import', [
+                'role' => $roleValue,
+                'employee_id' => $employee->id
+            ]);
+            // Optionally throw exception or continue without role
+            // throw new \Exception("Role '{$roleValue}' does not exist in the system");
+        }
+
+        // Create user account
         $user = User::create([
             'employee_id' => $employee->id,
             'name' => $employee->full_name,
@@ -277,18 +286,33 @@ class BulkImportService
             'email' => $employee->email, // Use employee email
             'password' => Hash::make($userData['password']),
             'user_type' => $userType,
-            'role' => $roleValue,
             'is_active' => true,
             'can_login' => true,
         ]);
+
+        // Assign role if provided (matching your EmployeeController approach)
+        if ($roleValue) {
+            $user->assignRole($roleValue);
+            Log::info('Role assigned to user from bulk import', [
+                'user_id' => $user->id,
+                'role' => $roleValue
+            ]);
+        } else {
+            // Optional: Assign a default role if none provided
+            $defaultRole = 'Staff'; // or whatever your default role is
+            $user->assignRole($defaultRole);
+            Log::info('Default role assigned to user from bulk import', [
+                'user_id' => $user->id,
+                'default_role' => $defaultRole
+            ]);
+        }
 
         Log::info('User account created during employee bulk import', [
             'employee_id' => $employee->id,
             'user_id' => $user->id,
             'username' => $userData['username'],
             'user_type' => $userType,
-            'role_assigned' => $roleAssigned,
-            'user_type_provided' => isset($userData['user_type'])
+            'role_assigned' => $roleValue ?? $defaultRole ?? null
         ]);
     }
 
@@ -359,6 +383,11 @@ class BulkImportService
         // Set default country if missing
         if (empty($data['country'])) {
             $data['country'] = 'Sri Lanka';
+        }
+
+        // Ensure role is properly formatted (capitalize first letter)
+        if (!empty($data['role'])) {
+            $data['role'] = ucfirst(strtolower(trim($data['role'])));
         }
 
         return $data;

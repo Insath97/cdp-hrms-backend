@@ -166,7 +166,7 @@ class EmployeeController extends Controller implements HasMiddleware
             $userType = $data['user_type'] ?? 'staff';
 
             // Use role from request if provided, otherwise derive from user_type
-            $roleValue = $data['role'] ?? (($userType === 'admin') ? 'Admin' : 'Staff');
+            // $roleValue = $data['role'] ?? (($userType === 'admin') ? 'Admin' : 'Staff');
 
             // Create the user
             $user = \App\Models\User::create([
@@ -176,11 +176,13 @@ class EmployeeController extends Controller implements HasMiddleware
                 'email' => $email,
                 'password' => \Illuminate\Support\Facades\Hash::make($rawPassword),
                 'user_type' => $userType,
-                'role' => $roleValue,
+                // 'role' => $roleValue,
                 'is_active' => true,
                 'can_login' => true,
             ]);
 
+              $user->assignRole($data['role']);
+              
             // Send welcome email with credentials
             try {
                 if (!empty($user->email)) {
