@@ -94,10 +94,10 @@ class Employee extends Model
         return $value ? date('Y-m-d', strtotime($value)) : null;
     }
 
-    protected function serializeDate(DateTimeInterface $date)
-    {
-        return $date->format('Y-m-d');
-    }
+    // protected function serializeDate(DateTimeInterface $date)
+    // {
+    //     return $date->format('Y-m-d');
+    // }
 
     // Relationships
     public function reportingManager(): BelongsTo
