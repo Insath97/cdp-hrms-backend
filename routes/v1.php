@@ -130,6 +130,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
     Route::put('employees/{employee}', [EmployeeController::class, 'update']);
+    Route::post('employees/{employee}', [EmployeeController::class, 'update']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);
     Route::delete('employees/{employee}/force-delete', [EmployeeController::class, 'forceDelete']);
     Route::patch('employees/{employee}/toggle-status', [EmployeeController::class, 'toggleStatus']);
