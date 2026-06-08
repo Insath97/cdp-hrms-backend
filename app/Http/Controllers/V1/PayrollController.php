@@ -350,9 +350,13 @@ class PayrollController extends Controller implements HasMiddleware
 
             $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
 
+            $monthlyTarget = $designation ? (float) ($designation->monthly_target ?? 0) : 0.0;
             $basicSalary = $designation ? (float) ($designation->basic_salary ?? 0) : 0.0;
+            $travelReimbursement = $designation ? (float) ($designation->travel_reimbursement ?? 0) : 0.0;
             $vehicleAllowance = $designation ? (float) ($designation->vehicle_rental ?? 0) : 0.0;
-
+            $performanceAllowance = $designation ? (float) ($designation->performance_allowance ?? 0) : 0.0;
+            $incentive = $designation ? (float) ($designation->incentive ?? 0) : 0.0;
+            $positionAllowance = $designation ? (float) ($designation->position_allowance ?? 0) : 0.0;
             return response()->json([
                 'status' => 'success',
                 'data' => [
@@ -363,6 +367,11 @@ class PayrollController extends Controller implements HasMiddleware
                     'designation_name' => $designation ? $designation->name : null,
                     'basic_salary' => $basicSalary,
                     'vehicle_allowance' => $vehicleAllowance,
+                    'performance_allowance' => $performanceAllowance,
+                    'travel_reimbursement' => $travelReimbursement,
+                    'monthly_target' => $monthlyTarget,
+                    'incentive' => $incentive,
+                    'position_allowance' => $positionAllowance,
                     'total_package' => $totalPackage,
                     'achievement_percentage' => $achievement,
                     'payment_percentage' => $paymentPercentage,
