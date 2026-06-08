@@ -393,16 +393,59 @@ class PayrollAdminController extends Controller implements HasMiddleware
             
             foreach ($request->user_ids as $userId) {
                 try {
-                    $user = User::find($userId);
+                    $user = User::with('employee.designation')->find($userId);
+                    $employee = $user ? $user->employee : null;
                     
-                    // Calculate salary components (adjust based on your business logic)
-                    $basic = $user->basic_salary ?? 0;
-                    $allowances = $this->calculateAllowances($user);
+                    if (!$employee) {
+                        throw new \Exception("Employee not found for user ID {$userId}");
+                    }
+                    
+                    $designation = $employee->designation;
+                    $totalPackage = $designation ? (float)($designation->total_package ?? 0) : 0.0;
+                    $basic = $designation ? (float)($designation->basic_salary ?? 0) : 0.0;
+                    
+                    // Fetch CDP metrics
+                    $period = $request->month;
+                    $cdpService = app(\App\Services\CdpConnectService::class);
+                    $achievement = 0.0;
+                    
+                    if ($employee->employee_code) {
+                        $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
+                        if ($cdpUser && isset($cdpUser['metrics'])) {
+                            $metrics = $cdpUser['metrics'];
+                            $achievementVal = $metrics['achievement_percentage']
+                                ?? $metrics['performance_percentage']
+                                ?? $metrics['achievement']
+                                ?? $metrics['performance']
+                                ?? $metrics['score']
+                                ?? null;
+                                
+                            if ($achievementVal !== null) {
+                                $achievement = (float) $achievementVal;
+                            }
+                        }
+                    }
+                    
+                    if ($achievement < 50) {
+                        $paymentPercentage = 0;
+                    } elseif ($achievement >= 50 && $achievement < 65) {
+                        $paymentPercentage = 50;
+                    } elseif ($achievement >= 65 && $achievement < 90) {
+                        $paymentPercentage = 75;
+                    } else {
+                        $paymentPercentage = 100;
+                    }
+                    
+                    $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
+                    
+                    $allowances = max(0, $calculatedPayment - $basic);
+                    $actualBasic = min($basic, $calculatedPayment);
                     $deductions = $this->calculateDeductions($user);
-                    $gross = $basic + $allowances;
-                    $epfEmployee = $gross * 0.08;
-                    $epfEmployer = $gross * 0.12;
-                    $etfEmployer = $gross * 0.03;
+                    
+                    $gross = $calculatedPayment;
+                    $epfEmployee = $actualBasic * 0.08;
+                    $epfEmployer = $actualBasic * 0.12;
+                    $etfEmployer = $actualBasic * 0.03;
                     $net = $gross - $epfEmployee - $deductions;
                     
                     $payroll = PayrollRecord::updateOrCreate(
@@ -411,7 +454,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                             'month' => $request->month
                         ],
                         [
-                            'basic' => $basic,
+                            'basic' => $actualBasic,
                             'allowances' => $allowances,
                             'deductions' => $deductions,
                             'net' => $net,

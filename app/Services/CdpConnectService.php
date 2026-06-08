@@ -85,7 +85,7 @@ public function fetchEmployeeMetrics(string $employeeCode, ?string $periodKey = 
         $response = Http::withHeaders([
             'X-API-Key' => $this->key,
             'Accept' => 'application/json',
-        ])->get("{$this->url}/v1/external/employees-summary", [
+        ])->get("{$this->url}/api/v1/external/employees-summary", [
             'search' => $employeeCode,
             'period_key' => $periodKey,
             'per_page' => 10,

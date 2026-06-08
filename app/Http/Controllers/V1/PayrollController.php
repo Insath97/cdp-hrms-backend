@@ -291,7 +291,7 @@ class PayrollController extends Controller implements HasMiddleware
             $totalPackage = $designation ? (float) ($designation->total_package ?? 0) : 0.0;
 
             // Fetch metrics from external API service
-            $period = $request->get('period_key', now()->format('Y-m'));
+            $period = $request->get('period_key', $request->get('period', now()->format('Y-m')));
 
             $achievement = null;
             $metricsNotFound = true;
@@ -336,14 +336,14 @@ class PayrollController extends Controller implements HasMiddleware
             if ($achievement < 50) {
                 $paymentPercentage = 0;
                 $paymentCriteria = 'No';
-            } elseif ($achievement >= 50 && $achievement <= 65) {
+            } elseif ($achievement >= 50 && $achievement < 65) {
                 $paymentPercentage = 50;
                 $paymentCriteria = '50% Total Package';
-            } elseif ($achievement > 65 && $achievement <= 90) {
+            } elseif ($achievement >= 65 && $achievement < 90) {
                 $paymentPercentage = 75;
                 $paymentCriteria = '75% Total Package';
             } else {
-                // > 90
+                // >= 90
                 $paymentPercentage = 100;
                 $paymentCriteria = '100% Total Package';
             }

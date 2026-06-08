@@ -14,15 +14,57 @@ class PayrollService
         $generated = [];
         
         foreach ($users as $user) {
-            // Get or calculate salary components
-            $basic = $user->basic_salary ?? 0;
-            $allowances = $this->calculateAllowances($user);
+            $user->load('employee.designation');
+            $employee = $user->employee;
+            if (!$employee) {
+                continue; // Skip users without an employee record
+            }
+            
+            $designation = $employee->designation;
+            $totalPackage = $designation ? (float)($designation->total_package ?? 0) : 0.0;
+            $basic = $designation ? (float)($designation->basic_salary ?? 0) : 0.0;
+            
+            // Fetch CDP metrics
+            $cdpService = app(\App\Services\CdpConnectService::class);
+            $achievement = 0.0;
+            
+            if ($employee->employee_code) {
+                $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $month);
+                if ($cdpUser && isset($cdpUser['metrics'])) {
+                    $metrics = $cdpUser['metrics'];
+                    $achievementVal = $metrics['achievement_percentage']
+                        ?? $metrics['performance_percentage']
+                        ?? $metrics['achievement']
+                        ?? $metrics['performance']
+                        ?? $metrics['score']
+                        ?? null;
+                        
+                    if ($achievementVal !== null) {
+                        $achievement = (float) $achievementVal;
+                    }
+                }
+            }
+            
+            if ($achievement < 50) {
+                $paymentPercentage = 0;
+            } elseif ($achievement >= 50 && $achievement < 65) {
+                $paymentPercentage = 50;
+            } elseif ($achievement >= 65 && $achievement < 90) {
+                $paymentPercentage = 75;
+            } else {
+                $paymentPercentage = 100;
+            }
+            
+            $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
+            
+            $allowances = max(0, $calculatedPayment - $basic);
+            $actualBasic = min($basic, $calculatedPayment);
             $deductions = $this->calculateDeductions($user);
             
-            $gross = $basic + $allowances;
-            $epfEmployee = $gross * 0.08; // 8%
-            $epfEmployer = $gross * 0.12; // 12%
-            $etfEmployer = $gross * 0.03; // 3%
+            $gross = $calculatedPayment;
+            $epfEmployee = $actualBasic * 0.08;
+            $epfEmployer = $actualBasic * 0.12;
+            $etfEmployer = $actualBasic * 0.03;
             $net = $gross - $epfEmployee - $deductions;
             
             $record = PayrollRecord::updateOrCreate(
@@ -31,7 +73,7 @@ class PayrollService
                     'month' => $month
                 ],
                 [
-                    'basic' => $basic,
+                    'basic' => $actualBasic,
                     'allowances' => $allowances,
                     'deductions' => $deductions,
                     'net' => $net,

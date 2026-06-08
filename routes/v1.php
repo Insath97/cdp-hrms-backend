@@ -144,7 +144,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::apiResource('users', UserController::class);
 
     // Fingerprint Device Routes
-    Route::prefix('fingerprint')->middleware(['auth:sanctum', 'permission:manage fingerprint'])->group(function () {
+    Route::prefix('fingerprint')->middleware(['permission:manage fingerprint'])->group(function () {
 
         // Device Management
         Route::get('/test-connection', [FingerprintController::class, 'testConnection']);
@@ -174,7 +174,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
 
     // Employee routes
-    Route::middleware(['auth:sanctum'])->group(function () {
+    Route::group(function () {
         Route::get('/payroll', [PayrollController::class, 'index']);
         Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
         Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
@@ -183,7 +183,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     });
 
     // HR Admin routes
-    Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
+    Route::prefix('admin')->group(function () {
         Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
         Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
         Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
