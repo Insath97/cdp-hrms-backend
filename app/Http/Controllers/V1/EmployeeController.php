@@ -740,7 +740,7 @@ class EmployeeController extends Controller implements HasMiddleware
                     'profile_image' => $employee->profile_image,
                     'email' => $employee->email,
                     'phone_primary' => $employee->phone_primary,
-                    'joined_at' => $employee->joined_at?->format('Y-m-d'),
+                    'joined_at' => $employee->joined_at,
                     'department' => $employee->department ? [
                         'id' => $employee->department->id,
                         'name' => $employee->department->name,

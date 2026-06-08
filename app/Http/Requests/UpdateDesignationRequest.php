@@ -36,7 +36,7 @@ class UpdateDesignationRequest extends FormRequest
             'incentive' => 'nullable|integer',
             'position_allowance' => 'nullable|integer',
             'total_package' => 'nullable|integer',
-            'level' => 'sometimes|in:entry,mid,senior,lead,executive,Manager,Director',
+            'level' => 'nullable|in:entry,mid,senior,lead,executive,Manager,Director',
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
         ];

@@ -41,4 +41,9 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI'),
     ],
 
+    'cdp_api' => [
+    'url' => env('CDP_CONNECT_API_URL'),
+    'key' => env('CDP_CONNECT_API_KEY'),
+],
+
 ];

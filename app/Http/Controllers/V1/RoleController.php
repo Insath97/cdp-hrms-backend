@@ -230,7 +230,7 @@ class RoleController extends Controller implements HasMiddleware
 
             $query = Role::query();
 
-            if ($user->hasRole('Super Admin')) {
+            if (!$user->hasRole('Super Admin')) {
                 $query->where('name', '!=', 'Super Admin');
             }
 

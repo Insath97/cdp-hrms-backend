@@ -1,4 +1,5 @@
 <?php
+
 // app/Http/Controllers/V1/PayrollController.php
 
 namespace App\Http\Controllers\V1;
@@ -6,13 +7,13 @@ namespace App\Http\Controllers\V1;
 use App\Http\Controllers\Controller;
 use App\Models\PayrollRecord;
 use App\Models\PayslipRequest;
+use App\Models\Employee;
+use App\Services\CdpConnectService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class PayrollController extends Controller implements HasMiddleware
 {
@@ -22,27 +23,28 @@ class PayrollController extends Controller implements HasMiddleware
             new Middleware('permission:Payroll View', only: ['index']),
             new Middleware('permission:Payroll Request', only: ['requestPayslip']),
             new Middleware('permission:Payroll Print', only: ['printPayslip']),
+            new Middleware('permission:Payroll Metrics', only: ['getPayrollMetrics'])
         ];
     }
-    
+
     public function index(Request $request)
     {
         try {
             $user = Auth::user();
-            
+
             $query = PayrollRecord::with(['latestRequest'])
                 ->where('user_id', $user->id)
                 ->orderBy('month', 'desc');
-                
+
             if ($request->has('status')) {
                 $query->where('status', $request->status);
             }
-            
+
             $payrollRecords = $query->get();
-            
+
             // Get current month (first record)
             $currentMonth = $payrollRecords->first();
-            
+
             // Calculate statutory contributions for current month
             $statutory = null;
             if ($currentMonth) {
@@ -52,145 +54,145 @@ class PayrollController extends Controller implements HasMiddleware
                     'etf_employer' => $currentMonth->etf_employer,
                 ];
             }
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payroll records retrieved successfully',
                 'records' => $payrollRecords,
                 'current_month' => $currentMonth,
-                'statutory' => $statutory
+                'statutory' => $statutory,
             ]);
-            
+
         } catch (\Throwable $th) {
             \Log::error('Failed to retrieve payroll records', [
                 'user_id' => Auth::id(),
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve payroll records',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
-    
+
     public function requestPayslip(Request $request, $payrollRecordId)
     {
         try {
             $request->validate([
-                'reason' => 'nullable|string|max:500'
+                'reason' => 'nullable|string|max:500',
             ]);
-            
+
             $payrollRecord = PayrollRecord::where('id', $payrollRecordId)
                 ->where('user_id', Auth::id())
                 ->firstOrFail();
-            
+
             // Check for existing requests
             $existingRequest = PayslipRequest::where('user_id', Auth::id())
                 ->where('payroll_record_id', $payrollRecord->id)
                 ->first();
-                
+
             if ($existingRequest) {
                 // If request exists and is pending or approved, don't allow new request
                 if (in_array($existingRequest->status, ['pending', 'approved'])) {
                     return response()->json([
                         'status' => 'error',
-                        'message' => 'A ' . $existingRequest->status . ' request already exists for this payslip'
+                        'message' => 'A '.$existingRequest->status.' request already exists for this payslip',
                     ], 400);
                 }
-                
+
                 // If request was rejected, update it to pending (re-request)
                 if ($existingRequest->status === 'rejected') {
                     $existingRequest->update([
                         'status' => 'pending',
                         'reason' => $request->reason,
                         'rejection_reason' => null, // Clear the rejection reason
-                        'updated_at' => now()
+                        'updated_at' => now(),
                     ]);
-                    
+
                     \Log::info('Payslip request re-submitted', [
                         'user_id' => Auth::id(),
                         'payroll_record_id' => $payrollRecord->id,
                         'request_id' => $existingRequest->id,
-                        'previous_status' => 'rejected'
+                        'previous_status' => 'rejected',
                     ]);
-                    
+
                     return response()->json([
                         'status' => 'success',
                         'message' => 'Request re-submitted successfully',
-                        'request' => $existingRequest
+                        'request' => $existingRequest,
                     ]);
                 }
             }
-            
+
             // Create new request if none exists
             $payslipRequest = PayslipRequest::create([
                 'user_id' => Auth::id(),
                 'payroll_record_id' => $payrollRecord->id,
                 'status' => 'pending',
-                'reason' => $request->reason
+                'reason' => $request->reason,
             ]);
-            
+
             \Log::info('Payslip request submitted', [
                 'user_id' => Auth::id(),
                 'payroll_record_id' => $payrollRecord->id,
-                'request_id' => $payslipRequest->id
+                'request_id' => $payslipRequest->id,
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Request submitted successfully',
-                'request' => $payslipRequest
+                'request' => $payslipRequest,
             ]);
-            
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Validation failed',
-                'errors' => $e->errors()
+                'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
             \Log::error('Failed to submit payslip request', [
                 'user_id' => Auth::id(),
                 'payroll_record_id' => $payrollRecordId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to submit request: ' . $e->getMessage()
+                'message' => 'Failed to submit request: '.$e->getMessage(),
             ], 500);
         }
     }
-    
+
     public function getRequestStatus($payrollRecordId)
     {
         try {
             $payrollRecord = PayrollRecord::where('id', $payrollRecordId)
                 ->where('user_id', Auth::id())
                 ->firstOrFail();
-                
+
             $request = PayslipRequest::where('user_id', Auth::id())
                 ->where('payroll_record_id', $payrollRecord->id)
                 ->with('approver')
                 ->first();
-                
+
             return response()->json([
                 'status' => 'success',
                 'request' => $request,
-                'can_print' => $request && $request->status === 'approved' && $request->signed_file_path
+                'can_print' => $request && $request->status === 'approved' && $request->signed_file_path,
             ]);
-            
+
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to get request status',
-                'error' => $th->getMessage()
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
-    
+
     /**
      * Print/download signed payslip
      */
@@ -198,65 +200,199 @@ class PayrollController extends Controller implements HasMiddleware
     {
         try {
             $user = Auth::user();
-            
+
             $payrollRecord = PayrollRecord::where('id', $payrollRecordId)
                 ->where('user_id', $user->id)
                 ->firstOrFail();
-            
+
             // Check if approved request exists for this payslip
             $approvedRequest = PayslipRequest::where('user_id', $user->id)
                 ->where('payroll_record_id', $payrollRecord->id)
                 ->where('status', 'approved')
                 ->whereNotNull('signed_file_path')
                 ->first();
-                
-            if (!$approvedRequest) {
+
+            if (! $approvedRequest) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'No approved request found for this payslip'
+                    'message' => 'No approved request found for this payslip',
                 ], 403);
             }
-            
+
             // Get the file path from the database
             $filePath = $approvedRequest->signed_file_path;
-            
+
             // Try to get the file from storage
             if (Storage::disk('public')->exists($filePath)) {
                 $file = Storage::disk('public')->get($filePath);
                 $filename = "payslip_{$payrollRecord->month}_{$user->name}.pdf";
-                
+
                 return response($file, 200)
                     ->header('Content-Type', 'application/pdf')
-                    ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+                    ->header('Content-Disposition', 'attachment; filename="'.$filename.'"');
             }
-            
+
             // Alternative: Check full storage path
-            $fullPath = storage_path('app/public/' . $filePath);
+            $fullPath = storage_path('app/public/'.$filePath);
             if (file_exists($fullPath)) {
                 return response()->download($fullPath, "payslip_{$payrollRecord->month}_{$user->name}.pdf");
             }
-            
+
             // If file not found, log error
             \Log::error('Payslip file not found', [
                 'file_path' => $filePath,
                 'user_id' => $user->id,
-                'request_id' => $approvedRequest->id
+                'request_id' => $approvedRequest->id,
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
-                'message' => 'Payslip file not found. Please contact HR.'
+                'message' => 'Payslip file not found. Please contact HR.',
             ], 404);
-            
+
         } catch (\Exception $e) {
             \Log::error('Failed to print payslip', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to download payslip: ' . $e->getMessage()
+                'message' => 'Failed to download payslip: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function getPayrollMetrics(Request $request, CdpConnectService $cdpService, $employeeId = null)
+    {
+        try {
+            if (! $employeeId) {
+                $user = Auth::user();
+                $employeeId = $user->employee_id;
+            }
+
+            if (! $employeeId) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee ID is required or user is not linked to an employee',
+                ], 400);
+            }
+
+            $employee = Employee::with('designation')->find($employeeId);
+
+            if (! $employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found',
+                ], 404);
+            }
+
+            $designation = $employee->designation;
+            $totalPackage = $designation ? (float) ($designation->total_package ?? 0) : 0.0;
+
+            // Fetch metrics from external API service
+            $period = $request->get('period_key', now()->format('Y-m'));
+
+            $achievement = null;
+            $metricsNotFound = true;
+
+            if ($employee->employee_code) {
+                $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
+                if ($cdpUser && isset($cdpUser['metrics'])) {
+                    $metrics = $cdpUser['metrics'];
+                    // Try different possible keys for achievement / performance
+                    $achievementVal = $metrics['achievement_percentage']
+                        ?? $metrics['performance_percentage']
+                        ?? $metrics['achievement']
+                        ?? $metrics['performance']
+                        ?? $metrics['score']
+                        ?? null;
+
+                    if ($achievementVal !== null) {
+                        $achievement = (float) $achievementVal;
+                        $metricsNotFound = false;
+                    }
+                }
+            }
+
+            // Allow request override for achievement (useful for manual calculation or testing)
+            if ($request->has('achievement')) {
+                $achievement = (float) $request->get('achievement');
+                $metricsNotFound = false;
+            }
+
+            if ($achievement === null) {
+                $achievement = 0.0;
+            }
+
+            // Boundary logic:
+            // Below 50% -> No (0%)
+            // Above 50% to 65% -> 50% Total Package
+            // 65% - 90% -> 75% Total Package
+            // 90% - 100% -> 100% Total Package
+            $paymentPercentage = 0;
+            $paymentCriteria = 'No';
+
+            if ($achievement < 50) {
+                $paymentPercentage = 0;
+                $paymentCriteria = 'No';
+            } elseif ($achievement >= 50 && $achievement <= 65) {
+                $paymentPercentage = 50;
+                $paymentCriteria = '50% Total Package';
+            } elseif ($achievement > 65 && $achievement <= 90) {
+                $paymentPercentage = 75;
+                $paymentCriteria = '75% Total Package';
+            } else {
+                // > 90
+                $paymentPercentage = 100;
+                $paymentCriteria = '100% Total Package';
+            }
+
+            $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
+
+            $monthlyTarget = $designation ? (float) ($designation->monthly_target ?? 0) : 0.0;
+            $basicSalary = $designation ? (float) ($designation->basic_salary ?? 0) : 0.0;
+            $travelReimbursement = $designation ? (float) ($designation->travel_reimbursement ?? 0) : 0.0;
+            $vehicleAllowance = $designation ? (float) ($designation->vehicle_rental ?? 0) : 0.0;
+            $performanceAllowance = $designation ? (float) ($designation->performance_allowance ?? 0) : 0.0;
+            $incentive = $designation ? (float) ($designation->incentive ?? 0) : 0.0;
+            $positionAllowance = $designation ? (float) ($designation->position_allowance ?? 0) : 0.0;
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'employee_id' => $employee->id,
+                    'employee_code' => $employee->employee_code,
+                    'full_name' => $employee->full_name,
+                    'designation_id' => $employee->designation_id,
+                    'designation_name' => $designation ? $designation->name : null,
+                    'basic_salary' => $basicSalary,
+                    'vehicle_allowance' => $vehicleAllowance,
+                    'performance_allowance' => $performanceAllowance,
+                    'travel_reimbursement' => $travelReimbursement,
+                    'monthly_target' => $monthlyTarget,
+                    'incentive' => $incentive,
+                    'position_allowance' => $positionAllowance,
+                    'total_package' => $totalPackage,
+                    'achievement_percentage' => $achievement,
+                    'payment_percentage' => $paymentPercentage,
+                    'payment_criteria' => $paymentCriteria,
+                    'calculated_payment' => $calculatedPayment,
+                    'how_much_paid' => $calculatedPayment,
+                    'period' => $period,
+                    'metrics_found' => ! $metricsNotFound,
+                ],
+            ]);
+
+        } catch (\Throwable $th) {
+            \Log::error('Failed to retrieve payroll metrics', [
+                'employee_id' => $employeeId,
+                'error' => $th->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve payroll metrics',
+                'error' => $th->getMessage(),
             ], 500);
         }
     }
