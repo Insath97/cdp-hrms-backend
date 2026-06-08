@@ -37,7 +37,7 @@ class CdpConnectService
 
             if ($response->successful()) {
                 $payload = $response->json();
-                
+
                 // Handle both paginated 'data.data' and direct array responses
                 $data = $payload['data']['data'] ?? $payload['data'] ?? [];
 
