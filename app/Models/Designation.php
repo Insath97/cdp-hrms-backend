@@ -31,6 +31,21 @@ class Designation extends Model
         'is_active' => 'boolean',
     ];
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::saving(function ($designation) {
+            $designation->total_package = 
+                (int) ($designation->basic_salary ?? 0) +
+                (int) ($designation->travel_reimbursement ?? 0) +
+                (int) ($designation->vehicle_rental ?? 0) +
+                (int) ($designation->performance_allowance ?? 0) +
+                (int) ($designation->incentive ?? 0) +
+                (int) ($designation->position_allowance ?? 0);
+        });
+    }
+
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);

@@ -24,6 +24,7 @@ use App\Http\Controllers\V1\ImportController;
 use App\Http\Controllers\V1\LeaveBalanceController;
 use App\Http\Controllers\V1\HolidayController;
 use App\Http\Controllers\V1\AttendanceUpdateRequestController;
+use App\Http\Controllers\V1\DatabaseController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -178,6 +179,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
         Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
         Route::get('/payroll/{payrollRecord}/print', [PayrollController::class, 'printPayslip']);
+        Route::get('/employees/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
     });
 
     // HR Admin routes
@@ -192,4 +194,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('imports/tables/list', [ImportController::class, 'listTables']);
     Route::get('imports', [ImportController::class, 'index']);
     Route::post('imports/{table}', [ImportController::class, 'import']);
+
+    // Database Management
+    Route::middleware(['auth:api'])->group(function () {
+        Route::get('database/export', [DatabaseController::class, 'export']);
+        Route::post('database/import', [DatabaseController::class, 'import']);
+    });
 });
