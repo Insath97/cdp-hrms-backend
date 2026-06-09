@@ -13,9 +13,11 @@ use App\Models\Attendance;
 use App\Models\User;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\ActivityLogTrait;
 
 class AttendanceController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -164,6 +166,8 @@ class AttendanceController extends Controller implements HasMiddleware
 
             $attendance = Attendance::create($data);
 
+            $this->logActivity('CREATE', 'Attendance', "Created attendance record on {$attendance->date} for Employee ID: {$attendance->employee_id}", $data);
+
             // Trigger rule processing automatically
             $dateStr = ($attendance->date instanceof Carbon) ? $attendance->date->toDateString() : Carbon::parse($attendance->date)->toDateString();
             $this->executeProcessRules($dateStr, $attendance->employee_id);
@@ -294,6 +298,8 @@ class AttendanceController extends Controller implements HasMiddleware
                     'status' => 'pending'
                 ]);
 
+                $this->logActivity('CREATE', 'AttendanceUpdateRequest', "Requested attendance update for date {$attendance->date} (Request ID: {$updateRequest->id})", $data);
+
                 Log::info('Attendance update requested', [
                     'user_id' => $user->id,
                     'attendance_id' => $attendance->id,
@@ -394,6 +400,8 @@ class AttendanceController extends Controller implements HasMiddleware
 
             $attendance->update($data);
 
+            $this->logActivity('UPDATE', 'Attendance', "Updated attendance record (ID: {$attendance->id})", $data);
+
             if ($allowUserIdUpdate && $requestedUserId) {
                 $attendance->user_id = $requestedUserId;
                 $attendance->save();
@@ -480,6 +488,8 @@ class AttendanceController extends Controller implements HasMiddleware
 
             $attendance->save();
 
+            $this->logActivity('CLOCK_OUT', 'Attendance', "Clocked out attendance record (ID: {$attendance->id})");
+
             Log::info('Attendance clocked out', [
                 'user_id' => Auth::id(),
                 'attendance_id' => $attendance->id,
@@ -523,6 +533,8 @@ class AttendanceController extends Controller implements HasMiddleware
             }
 
             $attendance->delete();
+
+            $this->logActivity('DELETE', 'Attendance', "Deleted attendance record (ID: {$attendance->id})");
 
             Log::info('Attendance deleted', [
                 'user_id' => Auth::id(),

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateRegionRequest;
 use App\Http\Requests\UpdateRegionRequest;
 use App\Models\Region;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class RegionController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -81,6 +83,8 @@ class RegionController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $region = Region::create($data);
+
+            $this->logActivity('CREATE', 'Region', "Created region: {$region->name}", $data);
 
             Log::info('Region created', [
                 'user_id' => Auth::id(),
@@ -163,6 +167,8 @@ class RegionController extends Controller implements HasMiddleware
             $data = $request->validated();
             $region->update($data);
 
+            $this->logActivity('UPDATE', 'Region', "Updated region: {$region->name}", $data);
+
             Log::info('Region updated', [
                 'user_id' => Auth::id(),
                 'region_id' => $region->id,
@@ -217,6 +223,8 @@ class RegionController extends Controller implements HasMiddleware
 
             $region->delete();
 
+            $this->logActivity('DELETE', 'Region', "Deleted region: {$region->name}");
+
             Log::info('Region deleted', [
                 'user_id' => Auth::id(),
                 'region_id' => $id,
@@ -254,6 +262,9 @@ class RegionController extends Controller implements HasMiddleware
 
             $region->is_active = !$region->is_active;
             $region->save();
+
+            $statusStr = $region->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'Region', "{$statusStr} region: {$region->name}");
 
             Log::info('Region status toggled', [
                 'user_id' => Auth::id(),

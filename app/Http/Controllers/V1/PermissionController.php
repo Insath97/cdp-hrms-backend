@@ -5,6 +5,7 @@ namespace App\Http\Controllers\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreatePermissionRequest;
 use App\Http\Requests\UpdatePermissionRequest;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -12,6 +13,7 @@ use Spatie\Permission\Models\Permission;
 
 class PermissionController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -88,6 +90,8 @@ class PermissionController extends Controller implements HasMiddleware
 
             $permission = Permission::create($data);
 
+            $this->logActivity('CREATE', 'Permission', "Created permission: {$permission->name}", $data);
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Permission created successfully',
@@ -154,6 +158,8 @@ class PermissionController extends Controller implements HasMiddleware
 
             $permission->update($data);
 
+            $this->logActivity('UPDATE', 'Permission', "Updated permission: {$permission->name}", $data);
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Permission updated successfully',
@@ -193,6 +199,8 @@ class PermissionController extends Controller implements HasMiddleware
             }
 
             $permission->delete();
+
+            $this->logActivity('DELETE', 'Permission', "Deleted permission: {$permission->name}");
 
             return response()->json([
                 'status' => 'success',

@@ -13,9 +13,11 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use App\Services\CdpConnectService;
+use App\Traits\ActivityLogTrait;
 
 class EmployeeController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     use FileUploadTrait;
 
     public static function middleware(): array
@@ -151,6 +153,8 @@ class EmployeeController extends Controller implements HasMiddleware
 
         // Create the employee first
         $employee = Employee::create($data);
+
+        $this->logActivity('CREATE', 'Employee', "Created employee: {$employee->full_name}", $data);
 
         // Automatically create a corresponding user account
         try {
@@ -324,6 +328,8 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employee->update($data);
 
+            $this->logActivity('UPDATE', 'Employee', "Updated employee: {$employee->full_name}", $data);
+
             Log::info('Employee updated', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
@@ -370,6 +376,8 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employee->delete();
 
+            $this->logActivity('DELETE', 'Employee', "Soft deleted employee: {$employee->full_name}");
+
             Log::info('Employee deleted', [
                 'user_id' => Auth::id(),
                 'employee_id' => $id,
@@ -408,6 +416,9 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employee->is_active = ! $employee->is_active;
             $employee->save();
+
+            $statusStr = $employee->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'Employee', "{$statusStr} employee: {$employee->full_name}");
 
             Log::info('Employee status toggled', [
                 'user_id' => Auth::id(),
@@ -455,6 +466,8 @@ class EmployeeController extends Controller implements HasMiddleware
                 'employment_status' => 'active',
                 'is_active' => true,
             ]);
+
+            $this->logActivity('MAKE_PERMANENT', 'Employee', "Made employee permanent: {$employee->full_name}");
 
             Log::info('Employee made permanent', [
                 'user_id' => Auth::id(),
@@ -504,6 +517,8 @@ class EmployeeController extends Controller implements HasMiddleware
                 'left_at' => $request->left_at ?? now(),
             ]);
 
+            $this->logActivity('TERMINATE', 'Employee', "Terminated employee: {$employee->full_name}", $request->only(['termination_reason', 'left_at']));
+
             Log::info('Employee terminated', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
@@ -552,6 +567,8 @@ class EmployeeController extends Controller implements HasMiddleware
                 'end_date' => $request->extended_until,
             ]);
 
+            $this->logActivity('EXTEND_PROBATION', 'Employee', "Extended probation for employee: {$employee->full_name}", $request->only(['extended_until', 'extension_reason']));
+
             Log::info('Employee extended', [
                 'user_id' => Auth::id(),
                 'employee_id' => $employee->id,
@@ -599,6 +616,8 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employee->restore();
 
+            $this->logActivity('RESTORE', 'Employee', "Restored employee: {$employee->full_name}");
+
             Log::info('Employee restored', [
                 'user_id' => Auth::id(),
                 'employee_id' => $id,
@@ -643,6 +662,8 @@ class EmployeeController extends Controller implements HasMiddleware
             }
 
             $employee->forceDelete();
+
+            $this->logActivity('FORCE_DELETE', 'Employee', "Permanently deleted employee: {$employee->full_name}");
 
             Log::info('Employee permanently deleted', [
                 'user_id' => Auth::id(),

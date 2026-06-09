@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateDepartmentRequest;
 use App\Http\Requests\UpdateDepartmentRequest;
 use App\Models\Department;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -15,6 +16,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class DepartmentController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -73,6 +75,8 @@ class DepartmentController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $department = Department::create($data);
+
+            $this->logActivity('CREATE', 'Department', "Created department: {$department->name}", $data);
 
             Log::info('Department created', [
                 'user_id' => Auth::id(),
@@ -140,6 +144,8 @@ class DepartmentController extends Controller implements HasMiddleware
             $data = $request->validated();
             $department->update($data);
 
+            $this->logActivity('UPDATE', 'Department', "Updated department: {$department->name}", $data);
+
             Log::info('Department updated', [
                 'user_id' => Auth::id(),
                 'department_id' => $department->id,
@@ -186,6 +192,8 @@ class DepartmentController extends Controller implements HasMiddleware
 
             $department->delete();
 
+            $this->logActivity('DELETE', 'Department', "Deleted department: {$department->name}");
+
             Log::info('Department deleted', [
                 'user_id' => Auth::id(),
                 'department_id' => $id,
@@ -219,6 +227,9 @@ class DepartmentController extends Controller implements HasMiddleware
 
             $department->is_active = !$department->is_active;
             $department->save();
+
+            $statusStr = $department->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'Department', "{$statusStr} department: {$department->name}");
 
             Log::info('Department status toggled', [
                 'user_id' => Auth::id(),

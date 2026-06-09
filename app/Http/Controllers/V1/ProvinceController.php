@@ -10,12 +10,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Province;
+use App\Traits\ActivityLogTrait;
 
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
 class ProvinceController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -86,6 +88,8 @@ class ProvinceController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $province = Province::create($data);
+
+            $this->logActivity('CREATE', 'Province', "Created province: {$province->name}", $data);
 
             Log::info('Province created', [
                 'user_id' => Auth::id(),
@@ -176,6 +180,8 @@ class ProvinceController extends Controller implements HasMiddleware
             $data = $request->validated();
             $province->update($data);
 
+            $this->logActivity('UPDATE', 'Province', "Updated province: {$province->name}", $data);
+
             Log::info('Province updated', [
                 'user_id' => Auth::id(),
                 'province_id' => $province->id,
@@ -230,6 +236,8 @@ class ProvinceController extends Controller implements HasMiddleware
 
             $province->delete();
 
+            $this->logActivity('DELETE', 'Province', "Deleted province: {$province->name}");
+
             Log::info('Province deleted', [
                 'user_id' => Auth::id(),
                 'province_id' => $id,
@@ -267,6 +275,9 @@ class ProvinceController extends Controller implements HasMiddleware
 
             $province->is_active = !$province->is_active;
             $province->save();
+
+            $statusStr = $province->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'Province', "{$statusStr} province: {$province->name}");
 
             Log::info('Province status toggled', [
                 'user_id' => Auth::id(),

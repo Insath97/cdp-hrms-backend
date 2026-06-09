@@ -25,6 +25,7 @@ use App\Http\Controllers\V1\LeaveBalanceController;
 use App\Http\Controllers\V1\HolidayController;
 use App\Http\Controllers\V1\AttendanceUpdateRequestController;
 use App\Http\Controllers\V1\DatabaseController;
+use App\Http\Controllers\V1\ActivityLogController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -206,4 +207,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('database/export', [DatabaseController::class, 'export']);
         Route::post('database/import', [DatabaseController::class, 'import']);
     });
+
+    // Activity Logs routes
+    Route::apiResource('activity-logs', ActivityLogController::class)->only(['index', 'show']);
 });

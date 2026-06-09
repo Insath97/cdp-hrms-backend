@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateDesignationRequest;
 use App\Http\Requests\UpdateDesignationRequest;
 use App\Models\Designation;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class DesignationController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -85,6 +87,8 @@ class DesignationController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $designation = Designation::create($data);
+
+            $this->logActivity('CREATE', 'Designation', "Created designation: {$designation->name}", $data);
 
             Log::info('Designation created', [
                 'user_id' => Auth::id(),
@@ -167,6 +171,8 @@ class DesignationController extends Controller implements HasMiddleware
             $data = $request->validated();
             $designation->update($data);
 
+            $this->logActivity('UPDATE', 'Designation', "Updated designation: {$designation->name}", $data);
+
             Log::info('Designation updated', [
                 'user_id' => Auth::id(),
                 'designation_id' => $designation->id,
@@ -221,6 +227,8 @@ class DesignationController extends Controller implements HasMiddleware
 
             $designation->delete();
 
+            $this->logActivity('DELETE', 'Designation', "Deleted designation: {$designation->name}");
+
             Log::info('Designation deleted', [
                 'user_id' => Auth::id(),
                 'designation_id' => $id,
@@ -258,6 +266,9 @@ class DesignationController extends Controller implements HasMiddleware
 
             $designation->is_active = !$designation->is_active;
             $designation->save();
+
+            $statusStr = $designation->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'Designation', "{$statusStr} designation: {$designation->name}");
 
             Log::info('Designation status toggled', [
                 'user_id' => Auth::id(),
