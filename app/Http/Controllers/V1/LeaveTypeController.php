@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateLeaveTypeRequest;
 use App\Http\Requests\UpdateLeaveTypeRequest;
 use App\Models\LeaveType;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -15,6 +16,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class LeaveTypeController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -72,6 +74,8 @@ class LeaveTypeController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $leaveType = LeaveType::create($data);
+
+            $this->logActivity('CREATE', 'LeaveType', "Created leave type: {$leaveType->name}", $data);
 
             Log::info('Leave type created', [
                 'user_id' => Auth::id(),
@@ -139,6 +143,8 @@ class LeaveTypeController extends Controller implements HasMiddleware
             $data = $request->validated();
             $leaveType->update($data);
 
+            $this->logActivity('UPDATE', 'LeaveType', "Updated leave type: {$leaveType->name}", $data);
+
             Log::info('Leave type updated', [
                 'user_id' => Auth::id(),
                 'leave_type_id' => $leaveType->id,
@@ -184,6 +190,8 @@ class LeaveTypeController extends Controller implements HasMiddleware
 
             $leaveType->delete();
 
+            $this->logActivity('DELETE', 'LeaveType', "Deleted leave type: {$leaveType->name}");
+
             Log::info('Leave type deleted', [
                 'user_id' => Auth::id(),
                 'leave_type_id' => $id,
@@ -216,7 +224,10 @@ class LeaveTypeController extends Controller implements HasMiddleware
             }
 
             $leaveType->is_active = !$leaveType->is_active;
-            $leaveType->save();
+            $zonal = $leaveType->save(); // Note: variable zonal name is present but let's keep it safe. Actually it's $leaveType->save();
+
+            $statusStr = $leaveType->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'LeaveType', "{$statusStr} leave type: {$leaveType->name}");
 
             Log::info('Leave type status toggled', [
                 'user_id' => Auth::id(),

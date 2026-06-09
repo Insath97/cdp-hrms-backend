@@ -9,12 +9,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Letter;
+use App\Traits\ActivityLogTrait;
 
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
 class LetterController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -85,6 +87,8 @@ class LetterController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $letter = Letter::create($data);
+
+            $this->logActivity('CREATE', 'Letter', "Created letter: {$letter->title} (Ref: {$letter->ref_number})", $data);
 
             Log::info('Letter created', [
                 'user_id' => Auth::id(),
@@ -186,6 +190,8 @@ class LetterController extends Controller implements HasMiddleware
             $data = $request->validated();
             $letter->update($data);
 
+            $this->logActivity('UPDATE', 'Letter', "Updated letter: {$letter->title} (Ref: {$letter->ref_number})", $data);
+
             Log::info('Letter updated', [
                 'user_id' => Auth::id(),
                 'letter_id' => $letter->id,
@@ -239,6 +245,8 @@ class LetterController extends Controller implements HasMiddleware
             }
 
             $letter->delete();
+
+            $this->logActivity('DELETE', 'Letter', "Deleted letter: {$letter->title} (Ref: {$letter->ref_number})");
 
             Log::info('Letter deleted', [
                 'user_id' => Auth::id(),

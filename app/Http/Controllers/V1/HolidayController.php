@@ -9,8 +9,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
+use App\Traits\ActivityLogTrait;
+
 class HolidayController extends Controller
 {
+    use ActivityLogTrait;
     /**
      * Display a listing of holidays.
      */
@@ -81,6 +84,8 @@ class HolidayController extends Controller
 
             DB::commit();
 
+            $this->logActivity('SYNC', 'Holiday', "Synced {$processedCount} holidays");
+
             return response()->json([
                 'status' => 'success',
                 'message' => "Successfully synced $processedCount holidays.",
@@ -112,6 +117,8 @@ class HolidayController extends Controller
         $validated['year'] = Carbon::parse($validated['date'])->year;
 
         $holiday = Holiday::create($validated);
+
+        $this->logActivity('CREATE', 'Holiday', "Created holiday: {$holiday->name} on {$holiday->date}", $validated);
 
         return response()->json([
             'status' => 'success',

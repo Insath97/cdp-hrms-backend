@@ -13,9 +13,11 @@ use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\ActivityLogTrait;
 
 class PayrollAdminController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     /**
      * Get the middleware that should be assigned to the controller.
      */
@@ -120,6 +122,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ]);
             
             DB::commit();
+
+            $this->logActivity('APPROVE', 'Payroll', "Approved payslip request (ID: {$payslipRequest->id}) for month {$payrollRecord->month}");
             
             \Log::info('Payslip request approved', [
                 'user_id' => Auth::id(),
@@ -174,6 +178,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'status' => 'rejected',
                 'rejection_reason' => $request->rejection_reason
             ]);
+
+            $this->logActivity('REJECT', 'Payroll', "Rejected payslip request (ID: {$payslipRequest->id}). Reason: {$request->rejection_reason}", $request->only(['rejection_reason']));
             
             \Log::info('Payslip request rejected', [
                 'user_id' => Auth::id(),
@@ -315,6 +321,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
             }
             
             $payroll->update($updateData);
+
+            $this->logActivity('UPDATE', 'Payroll', "Updated payroll record (ID: {$payroll->id}) for month {$payroll->month}", $updateData);
             
             \Log::info('Payroll record updated', [
                 'user_id' => Auth::id(),
@@ -354,6 +362,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'status' => 'processed',
                 'processed_at' => now()
             ]);
+
+            $this->logActivity('PROCESS', 'Payroll', "Processed payroll record (ID: {$payroll->id}) for month {$payroll->month}");
             
             \Log::info('Payroll processed', [
                 'user_id' => Auth::id(),
@@ -431,6 +441,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     ];
                 }
             }
+
+            $this->logActivity('GENERATE', 'Payroll', "Generated bulk payroll records for month {$request->month}", $request->all());
             
             \Log::info('Bulk payroll generated', [
                 'user_id' => Auth::id(),

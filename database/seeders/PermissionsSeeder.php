@@ -122,6 +122,11 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Bulk Import', 'group_name' => 'Import Management Permissions'],
             ['name' => 'Database Export', 'group_name' => 'Import Management Permissions'],
             ['name' => 'Database Import', 'group_name' => 'Import Management Permissions'],
+
+
+            /* Activity Log Management */
+            ['name' => 'Activity Log Index', 'group_name' => 'Activity Log Permissions'],
+            ['name' => 'Activity Log Show', 'group_name' => 'Activity Log Permissions'],
             ];
 
         foreach ($permissions as $permission) {

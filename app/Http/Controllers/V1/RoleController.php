@@ -5,6 +5,7 @@ namespace App\Http\Controllers\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateRoleRequest;
 use App\Http\Requests\UpdateRoleRequest;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -13,6 +14,7 @@ use Spatie\Permission\Models\Role;
 
 class RoleController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -79,6 +81,8 @@ class RoleController extends Controller implements HasMiddleware
                 'guard_name' => 'api',
                 'is_protected' => $data['is_protected'] ?? false,
             ]);
+
+            $this->logActivity('CREATE', 'Role', "Created role: {$role->name}", $data);
 
             if (isset($data['permissions']) && count($data['permissions']) > 0) {
                 $permissions = Permission::whereIn('id', $data['permissions'])->get();
@@ -158,6 +162,8 @@ class RoleController extends Controller implements HasMiddleware
                 $role->syncPermissions($permissions);
             }
 
+            $this->logActivity('UPDATE', 'Role', "Updated role: {$role->name}", $data);
+
             $role->load('permissions');
 
             return response()->json([
@@ -209,6 +215,8 @@ class RoleController extends Controller implements HasMiddleware
             }
 
             $role->delete();
+
+            $this->logActivity('DELETE', 'Role', "Deleted role: {$role->name}");
 
             return response()->json([
                 'status' => 'success',

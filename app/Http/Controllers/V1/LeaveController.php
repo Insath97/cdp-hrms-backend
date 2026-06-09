@@ -13,10 +13,11 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\FileUploadTrait;
+use App\Traits\ActivityLogTrait;
 
 class LeaveController extends Controller implements HasMiddleware
 {
-    use FileUploadTrait;
+    use FileUploadTrait, ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -125,6 +126,8 @@ class LeaveController extends Controller implements HasMiddleware
             
             $leave = Leave::create($data);
 
+            $this->logActivity('CREATE', 'Leave', "Created leave request from {$leave->from_date} to {$leave->to_date}", $data);
+
             Log::info('Leave request created', [
                 'user_id' => Auth::id(),
                 'leave_id' => $leave->id,
@@ -223,6 +226,8 @@ class LeaveController extends Controller implements HasMiddleware
 
             $leave->update($data);
 
+            $this->logActivity('UPDATE', 'Leave', "Updated leave request from {$leave->from_date} to {$leave->to_date}", $data);
+
             Log::info('Leave request updated', [
                 'user_id' => Auth::id(),
                 'leave_id' => $leave->id,
@@ -268,6 +273,8 @@ class LeaveController extends Controller implements HasMiddleware
             }
 
             $leave->delete();
+
+            $this->logActivity('DELETE', 'Leave', "Deleted leave request from {$leave->from_date} to {$leave->to_date}");
 
             Log::info('Leave request deleted', [
                 'user_id' => Auth::id(),
@@ -319,6 +326,8 @@ class LeaveController extends Controller implements HasMiddleware
                 'approved_by' => $approverEmpId,
                 'approved_at' => now(),
             ]);
+
+            $this->logActivity('APPROVE', 'Leave', "Approved leave request (ID: {$leave->id})");
 
             // Deduction from LeaveBalance
             if ($leave->employee_id || $leave->user_id) {
@@ -463,6 +472,8 @@ class LeaveController extends Controller implements HasMiddleware
                 'rejected_at' => now(),
                 'reject_reason' => $request->reject_reason,
             ]);
+
+            $this->logActivity('REJECT', 'Leave', "Rejected leave request (ID: {$leave->id}). Reason: {$request->reject_reason}", $request->only(['reject_reason']));
 
             Log::info('Leave request rejected', [
                 'user_id' => Auth::id(),
