@@ -130,6 +130,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     });
 
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
+    Route::get('employees/{employee}/metrics', [EmployeeController::class, 'getMetrics']);
     Route::put('employees/{employee}', [EmployeeController::class, 'update']);
     Route::post('employees/{employee}', [EmployeeController::class, 'update']);
     Route::post('employees/{employee}/restore', [EmployeeController::class, 'restore']);
@@ -174,13 +175,13 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
 
     // Employee routes
-    Route::middleware(['auth:sanctum'])->group(function () {
+
         Route::get('/payroll', [PayrollController::class, 'index']);
         Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
         Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
         Route::get('/payroll/{payrollRecord}/print', [PayrollController::class, 'printPayslip']);
-        Route::get('/employees/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
-    });
+        Route::get('/payroll/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
+    
 
     // HR Admin routes
     Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {

@@ -12,6 +12,7 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use App\Services\CdpConnectService;
 
 class EmployeeController extends Controller implements HasMiddleware
 {
@@ -20,7 +21,7 @@ class EmployeeController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Employee Index', only: ['index', 'show', 'getEmployeeList']),
+            new Middleware('permission:Employee Index', only: ['index', 'show', 'getEmployeeList', 'getMetrics']),
             new Middleware('permission:Employee Create', only: ['store']),
             new Middleware('permission:Employee Update', only: ['update', 'makePermanent', 'terminate', 'extend']),
             new Middleware('permission:Employee Delete', only: ['destroy', 'forceDelete']),
@@ -770,6 +771,88 @@ class EmployeeController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to verify employee',
+            ], 500);
+        }
+    }
+
+    /**
+     * Get real-time employee metrics from CDP Connect API with identity validation.
+     */
+    public function getMetrics(Request $request, string $id, CdpConnectService $cdpService)
+    {
+        try {
+            $employee = Employee::find($id);
+
+            if (!$employee) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee not found',
+                ], 404);
+            }
+
+            if (!$employee->employee_code) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee does not have an employee code configured in HRMS',
+                ], 422);
+            }
+
+            $period = $request->get('period_key', now()->format('Y-m'));
+
+            // 1. Fetch metrics from the external API service
+            $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
+
+            if (!$cdpUser) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Employee metrics not found in CDP system',
+                ], 404);
+            }
+
+            // 2. Validate identity fields
+            $hrmsIdType = strtolower(trim($employee->id_type ?? ''));
+            $cdpIdType = strtolower(trim($cdpUser['id_type'] ?? ''));
+
+            $hrmsIdNumber = strtolower(trim($employee->id_number ?? ''));
+            $cdpIdNumber = strtolower(trim($cdpUser['id_number'] ?? ''));
+
+            $hrmsCode = strtolower(trim($employee->employee_code ?? ''));
+            $cdpCode = strtolower(trim($cdpUser['employee_code'] ?? ''));
+
+            if ($hrmsCode !== $cdpCode) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Identity mismatch: Employee code does not match between HRMS and CDP',
+                ], 422);
+            }
+
+            if ($hrmsIdType !== $cdpIdType) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Identity mismatch: ID type mismatch ('{$employee->id_type}' in HRMS, '{$cdpUser['id_type']}' in CDP)",
+                ], 422);
+            }
+
+            if ($hrmsIdNumber !== $cdpIdNumber) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Identity mismatch: ID number does not match between HRMS and CDP',
+                ], 422);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $cdpUser['metrics'] ?? null,
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to retrieve employee metrics from external API', [
+                'employee_id' => $id,
+                'error' => $th->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve employee metrics',
             ], 500);
         }
     }

@@ -42,8 +42,8 @@ return [
     ],
 
     'cdp_api' => [
-    'url' => env('CDP_CONNECT_API_URL'),
-    'key' => env('CDP_CONNECT_API_KEY'),
-],
+        'url' => env('CDP_CONNECT_API_URL'),
+        'key' => env('CDP_CONNECT_API_KEY'),
+    ],
 
 ];
