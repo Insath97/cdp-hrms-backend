@@ -8,6 +8,7 @@ use App\Http\Requests\UpdateUserRequest;
 use App\Mail\UserCreateMail;
 use App\Models\User;
 use App\Traits\FileUploadTrait;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -18,7 +19,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class UserController extends Controller implements HasMiddleware
 {
-    use FileUploadTrait;
+    use FileUploadTrait, ActivityLogTrait;
 
     public static function middleware(): array
     {
@@ -116,6 +117,8 @@ class UserController extends Controller implements HasMiddleware
             }
 
             $user = User::create($data);
+
+            $this->logActivity('CREATE', 'User', "Created user: {$user->name}", $request->except(['password']));
 
             // Assign Role
             $user->assignRole($data['role']);
@@ -249,6 +252,8 @@ class UserController extends Controller implements HasMiddleware
 
             $user->update($data);
 
+            $this->logActivity('UPDATE', 'User', "Updated user: {$user->name}", $request->except(['password']));
+
             if (isset($data['role'])) {
                 $user->syncRoles([$data['role']]);
             }
@@ -322,6 +327,8 @@ class UserController extends Controller implements HasMiddleware
             $this->deleteFile($user->profile_image);
             $user->delete();
 
+            $this->logActivity('DELETE', 'User', "Deleted user: {$user->name}");
+
             Log::info('User deleted', [
                 'admin_id' => Auth::id(),
                 'deleted_user_id' => $id
@@ -362,6 +369,9 @@ class UserController extends Controller implements HasMiddleware
 
             $user->is_active = !$user->is_active;
             $user->save();
+
+            $statusStr = $user->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'User', "{$statusStr} user: {$user->name}");
 
             Log::info('User status toggled', [
                 'admin_id' => Auth::id(),

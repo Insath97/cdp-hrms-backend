@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateZonalRequest;
 use App\Http\Requests\UpdateZonalRequest;
 use App\Models\Zonal;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class ZonalController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -81,6 +83,8 @@ class ZonalController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $zonal = Zonal::create($data);
+
+            $this->logActivity('CREATE', 'Zonal', "Created zonal: {$zonal->name}", $data);
 
             Log::info('Zonal created', [
                 'user_id' => Auth::id(),
@@ -163,6 +167,8 @@ class ZonalController extends Controller implements HasMiddleware
             $data = $request->validated();
             $zonal->update($data);
 
+            $this->logActivity('UPDATE', 'Zonal', "Updated zonal: {$zonal->name}", $data);
+
             Log::info('Zonal updated', [
                 'user_id' => Auth::id(),
                 'zonal_id' => $zonal->id,
@@ -217,6 +223,8 @@ class ZonalController extends Controller implements HasMiddleware
 
             $zonal->delete();
 
+            $this->logActivity('DELETE', 'Zonal', "Deleted zonal: {$zonal->name}");
+
             Log::info('Zonal deleted', [
                 'user_id' => Auth::id(),
                 'zonal_id' => $id,
@@ -254,6 +262,9 @@ class ZonalController extends Controller implements HasMiddleware
 
             $zonal->is_active = !$zonal->is_active;
             $zonal->save();
+
+            $statusStr = $zonal->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'Zonal', "{$statusStr} zonal: {$zonal->name}");
 
             Log::info('Zonal status toggled', [
                 'user_id' => Auth::id(),

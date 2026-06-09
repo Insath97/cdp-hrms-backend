@@ -25,6 +25,7 @@ use App\Http\Controllers\V1\LeaveBalanceController;
 use App\Http\Controllers\V1\HolidayController;
 use App\Http\Controllers\V1\AttendanceUpdateRequestController;
 use App\Http\Controllers\V1\DatabaseController;
+use App\Http\Controllers\V1\ActivityLogController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -176,15 +177,20 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     // Employee routes
 
-        Route::get('/payroll', [PayrollController::class, 'index']);
-        Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
-        Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
-        Route::get('/payroll/{payrollRecord}/print', [PayrollController::class, 'printPayslip']);
-        Route::get('/payroll/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
-    
+    Route::get('/payroll', [PayrollController::class, 'index']);
+    Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
+    Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
+    Route::get('/payroll/{payrollRecord}/print', [PayrollController::class, 'printPayslip']);
+    Route::get('/payroll/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
+
 
     // HR Admin routes
     Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
+        Route::get('/payroll', [PayrollAdminController::class, 'getAllPayrolls']);
+        Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
+        Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
+        Route::post('/payroll/{id}/process', [PayrollAdminController::class, 'processPayroll']);
+
         Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
         Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
         Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
@@ -201,4 +207,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('database/export', [DatabaseController::class, 'export']);
         Route::post('database/import', [DatabaseController::class, 'import']);
     });
+
+    // Activity Logs routes
+    Route::apiResource('activity-logs', ActivityLogController::class)->only(['index', 'show']);
 });

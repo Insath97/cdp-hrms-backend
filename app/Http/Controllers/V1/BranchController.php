@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateBranchRequest;
 use App\Http\Requests\UpdateBranchRequest;
 use App\Models\Branch;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,7 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class BranchController extends Controller implements HasMiddleware
 {
+    use ActivityLogTrait;
     public static function middleware(): array
     {
         return [
@@ -83,6 +85,8 @@ class BranchController extends Controller implements HasMiddleware
         try {
             $data = $request->validated();
             $branch = Branch::create($data);
+
+            $this->logActivity('CREATE', 'Branch', "Created branch: {$branch->name}", $data);
 
             Log::info('Branch created', [
                 'user_id' => Auth::id(),
@@ -159,6 +163,8 @@ class BranchController extends Controller implements HasMiddleware
             $data = $request->validated();
             $branch->update($data);
 
+            $this->logActivity('UPDATE', 'Branch', "Updated branch: {$branch->name}", $data);
+
             Log::info('Branch updated', [
                 'user_id' => Auth::id(),
                 'branch_id' => $branch->id,
@@ -206,6 +212,8 @@ class BranchController extends Controller implements HasMiddleware
 
             $branch->delete();
 
+            $this->logActivity('DELETE', 'Branch', "Deleted branch: {$branch->name}");
+
             Log::info('Branch deleted', [
                 'user_id' => Auth::id(),
                 'branch_id' => $id,
@@ -243,6 +251,9 @@ class BranchController extends Controller implements HasMiddleware
 
             $branch->is_active = !$branch->is_active;
             $branch->save();
+
+            $statusStr = $branch->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('TOGGLE_STATUS', 'Branch', "{$statusStr} branch: {$branch->name}");
 
             Log::info('Branch status toggled', [
                 'user_id' => Auth::id(),
