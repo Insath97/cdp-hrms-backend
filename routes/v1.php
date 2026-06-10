@@ -28,6 +28,7 @@ use App\Http\Controllers\V1\DatabaseController;
 use App\Http\Controllers\V1\ActivityLogController;
 use App\Http\Controllers\V1\PasswordController;
 use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
+use App\Http\Controllers\V1\Admin\AbsentMarkingController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -210,6 +211,9 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('/password-change-requests', [PasswordChangeRequestController::class, 'index']);
         Route::post('/password-change-requests/{id}/approve', [PasswordChangeRequestController::class, 'approve']);
         Route::post('/password-change-requests/{id}/reject', [PasswordChangeRequestController::class, 'reject']);
+
+        // Absent (No Pay) marking
+        Route::post('/attendances/mark-absent', [AbsentMarkingController::class, 'markAbsent']);
     });
 
     //Bulk Import routes

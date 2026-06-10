@@ -24,6 +24,7 @@ class AttendanceSettingController extends Controller
             'auto_convert_late_to_leave' => true,
             'office_start_time' => '08:30:00',
             'office_end_time' => '17:00:00',
+            'auto_mark_absent' => false,
         ];
 
         foreach ($defaults as $key => $val) {
@@ -40,6 +41,7 @@ class AttendanceSettingController extends Controller
         if (isset($settings['short_leave_type_id'])) $settings['short_leave_type_id'] = (int) $settings['short_leave_type_id'];
         if (isset($settings['half_day_leave_type_id'])) $settings['half_day_leave_type_id'] = (int) $settings['half_day_leave_type_id'];
         if (isset($settings['absent_leave_type_id'])) $settings['absent_leave_type_id'] = (int) $settings['absent_leave_type_id'];
+        if (isset($settings['absent_no_pay_leave_type_id'])) $settings['absent_no_pay_leave_type_id'] = (int) $settings['absent_no_pay_leave_type_id'];
         if (isset($settings['late_consecutive_days'])) $settings['late_consecutive_days'] = (int) $settings['late_consecutive_days'];
         if (isset($settings['consider_holidays'])) $settings['consider_holidays'] = filter_var($settings['consider_holidays'], FILTER_VALIDATE_BOOLEAN);
         if (isset($settings['consider_leaves'])) $settings['consider_leaves'] = filter_var($settings['consider_leaves'], FILTER_VALIDATE_BOOLEAN);
@@ -47,6 +49,9 @@ class AttendanceSettingController extends Controller
         // Boolean casts
         if (isset($settings['auto_convert_late_to_leave'])) {
             $settings['auto_convert_late_to_leave'] = filter_var($settings['auto_convert_late_to_leave'], FILTER_VALIDATE_BOOLEAN);
+        }
+        if (isset($settings['auto_mark_absent'])) {
+            $settings['auto_mark_absent'] = filter_var($settings['auto_mark_absent'], FILTER_VALIDATE_BOOLEAN);
         }
 
         return response()->json([
