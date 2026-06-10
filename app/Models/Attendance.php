@@ -30,6 +30,9 @@ class Attendance extends Model
         'converted_at',
         'converted_leave_type',
         'grace_period_applied',
+        'leave_taken',
+        'is_no_pay',
+        'remarks',
     ];
 
     protected $casts = [
@@ -41,6 +44,8 @@ class Attendance extends Model
         'out_latitude' => 'decimal:8',
         'out_longitude' => 'decimal:8',
         'working_hours' => 'decimal:2',
+        'leave_taken' => 'decimal:2',
+        'is_no_pay' => 'boolean',
     ];
 
     // Relationships

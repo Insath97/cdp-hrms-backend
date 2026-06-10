@@ -387,6 +387,18 @@ class LeaveController extends Controller implements HasMiddleware
                 $isMedical = stripos($leaveType->name, 'medical') !== false || strtolower($leaveType->code) === 'ml';
                 $statusToApply = $isMedical ? 'medical_leave' : 'leave';
 
+                $dailyDeduction = 1.00;
+                if ($leaveType) {
+                    if (stripos($leaveType->calculation_unit, 'half') !== false) {
+                        $dailyDeduction = 0.50;
+                    } elseif (stripos($leaveType->calculation_unit, 'hour') !== false || stripos($leaveType->name, 'short') !== false) {
+                        $dailyDeduction = 0.25;
+                    }
+                }
+
+                $isNoPay = $leaveType ? !$leaveType->is_paid : false;
+                $leaveRemarks = $leaveType ? "Approved Leave: {$leaveType->name} (Leave Request ID: {$leave->id})" : "Approved Leave";
+
                 $currentApproveDate = \Carbon\Carbon::parse($leave->from_date);
                 $endApproveDate = \Carbon\Carbon::parse($leave->to_date);
 
@@ -408,7 +420,10 @@ class LeaveController extends Controller implements HasMiddleware
                             'status' => $statusToApply,
                             'working_hours' => 0,
                             'clock_in' => null,
-                            'clock_out' => null
+                            'clock_out' => null,
+                            'leave_taken' => $dailyDeduction,
+                            'is_no_pay' => $isNoPay,
+                            'remarks' => $leaveRemarks
                         ]
                     );
                     $currentApproveDate->addDay();

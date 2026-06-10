@@ -29,6 +29,9 @@ class UpdateAttendanceRequest extends FormRequest
             'clock_in' => 'nullable|date_format:H:i:s',
             'clock_out' => 'nullable|date_format:H:i:s',
             'status' => 'nullable|in:present,absent,half_day,leave',
+            'leave_taken' => 'nullable|numeric|min:0|max:1',
+            'is_no_pay' => 'nullable|boolean',
+            'remarks' => 'nullable|string|max:1000',
         ];
     }
 

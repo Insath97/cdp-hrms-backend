@@ -1251,6 +1251,10 @@ class AttendanceController extends Controller implements HasMiddleware
                 }
 
                 if ($targetLeaveType) {
+                    $leaveTypeObj = \App\Models\LeaveType::find($targetLeaveType);
+                    $isNoPay = $leaveTypeObj ? !$leaveTypeObj->is_paid : false;
+                    $autoRemarks = "Auto-converted due to $consecutiveLate consecutive late days.";
+
                     $leaveQuery = \App\Models\Leave::where('from_date', $date)
                         ->where('leave_type_id', $targetLeaveType);
                     
@@ -1277,7 +1281,10 @@ class AttendanceController extends Controller implements HasMiddleware
                             $triggeringAttendance->update([
                                 'converted_at' => now(),
                                 'converted_leave_type' => $targetLeaveType,
-                                'status' => $newStatus
+                                'status' => $newStatus,
+                                'leave_taken' => $deduction,
+                                'is_no_pay' => $isNoPay,
+                                'remarks' => $autoRemarks
                             ]);
                         }
                     } else {
@@ -1315,10 +1322,13 @@ class AttendanceController extends Controller implements HasMiddleware
                             $triggeringAttendance->update([
                                 'converted_at' => now(),
                                 'converted_leave_type' => $targetLeaveType,
-                                'status' => $newStatus
+                                'status' => $newStatus,
+                                'leave_taken' => $deduction,
+                                'is_no_pay' => $isNoPay,
+                                'remarks' => $autoRemarks
                             ]);
                         }
-
+                        
                         $leaveTypeObj = \App\Models\LeaveType::find($targetLeaveType);
                         
                         $balanceQuery = [
