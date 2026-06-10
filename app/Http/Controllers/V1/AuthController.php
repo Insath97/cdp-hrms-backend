@@ -56,8 +56,11 @@ class AuthController extends Controller
                 ], 401);
             }
 
+            $isFirstLogin = is_null($user->password_changed_at);
 
             $user->updateLastLogin($request->ip());
+
+            $user->setAttribute('is_first_login', $isFirstLogin);
 
             $cookie = cookie(
                 'auth_token',

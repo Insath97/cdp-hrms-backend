@@ -33,7 +33,20 @@ class User extends Authenticatable implements JWTSubject
         'email_verified_at',
         'email_verification_token',
         'email_verification_token_expires_at',
+        'password_changed_at',
     ];
+
+    /**
+     * The attributes that should be appended to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = ['is_first_login'];
+
+    public function getIsFirstLoginAttribute(): bool
+    {
+        return is_null($this->password_changed_at);
+    }
 
     /**
      * The attributes that should be hidden for serialization.
@@ -59,6 +72,7 @@ class User extends Authenticatable implements JWTSubject
             'last_login_at' => 'datetime',
             'is_active' => 'boolean',
             'can_login' => 'boolean',
+            'password_changed_at' => 'datetime',
         ];
     }
 
@@ -91,6 +105,11 @@ class User extends Authenticatable implements JWTSubject
     public function payslipRequests()
     {
         return $this->hasMany(PayslipRequest::class);
+    }
+
+    public function passwordChangeRequests()
+    {
+        return $this->hasMany(PasswordChangeRequest::class);
     }
 
     /* Helper Methods */

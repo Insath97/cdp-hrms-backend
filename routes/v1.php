@@ -26,6 +26,8 @@ use App\Http\Controllers\V1\HolidayController;
 use App\Http\Controllers\V1\AttendanceUpdateRequestController;
 use App\Http\Controllers\V1\DatabaseController;
 use App\Http\Controllers\V1\ActivityLogController;
+use App\Http\Controllers\V1\PasswordController;
+use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -39,8 +41,9 @@ Route::prefix('v1')->group(function () {
     Route::get('public/verify-employee/{employeeCode}', [EmployeeController::class, 'verifyByCode'])
         ->name('public.verify.employee');
 
-    // Add other public routes here if needed
-    // Route::get('public/...', ...);
+    // Forgot password endpoints (unauthenticated)
+    Route::post('password/forgot', [PasswordController::class, 'forgotPassword']);
+    Route::post('password/reset-with-otp', [PasswordController::class, 'resetForgotPassword']);
 });
 
 /* protected routes */
@@ -48,6 +51,12 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('me', [AuthController::class, 'me']);
+
+
+    // password change requests
+    Route::post('password/request-change', [PasswordController::class, 'requestChange']);
+    Route::post('password/change-with-otp', [PasswordController::class, 'changeWithOtp']);
+
     // Route::get('table-counts', [TableCountController::class, 'getTableCounts']);
     // Route::get('table-counts/{tableName}', [TableCountController::class, 'getTableCount']);
     // Route::get('employee-counts/inactive', [TableCountController::class, 'getInactiveEmployeeCount']);
@@ -194,7 +203,13 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
         Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
         Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
+
+
         Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
+
+        Route::get('/password-change-requests', [PasswordChangeRequestController::class, 'index']);
+        Route::post('/password-change-requests/{id}/approve', [PasswordChangeRequestController::class, 'approve']);
+        Route::post('/password-change-requests/{id}/reject', [PasswordChangeRequestController::class, 'reject']);
     });
 
     //Bulk Import routes
