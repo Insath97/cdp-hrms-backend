@@ -9,4 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 // Run the absentee marker daily at midnight
-Schedule::command('attendance:mark-absentees')->dailyAt('23:59');
+Schedule::command('attendance:mark-absentees')->dailyAt('10:20');

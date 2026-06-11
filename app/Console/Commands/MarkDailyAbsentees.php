@@ -33,6 +33,13 @@ class MarkDailyAbsentees extends Command
         $dateStr = $this->argument('date') ?? Carbon::today()->format('Y-m-d');
         $date = Carbon::parse($dateStr);
 
+        // Check if date is today and current time is before 16:15
+        $now = Carbon::now();
+        if ($date->isToday() && $now->format('H:i:s') < '16:15:00') {
+            $this->info("Date {$dateStr} is today and current time is before 16:15. Skipping absentee marking.");
+            return 0;
+        }
+
         $this->info("Checking attendance records for date: {$dateStr}");
 
         // 1. Skip holiday/weekend
@@ -80,6 +87,39 @@ class MarkDailyAbsentees extends Command
                     'is_no_pay'   => true,
                     'remarks'     => 'Auto-marked absent: No clock-in or leave request found.'
                 ]);
+
+                // 6. Update Leave Balance for Unpaid/Absent Leave
+                $absentLeaveTypeId = \App\Models\AttendanceSetting::getIntSetting('absent_leave_type_id');
+                $leaveType = null;
+                if ($absentLeaveTypeId) {
+                    $leaveType = \App\Models\LeaveType::find($absentLeaveTypeId);
+                }
+                if (!$leaveType) {
+                    $leaveType = \App\Models\LeaveType::where('code', 'NOPAY')
+                        ->orWhere('code', 'ABSENT')
+                        ->first();
+                }
+
+                if ($leaveType) {
+                    $balance = \App\Models\LeaveBalance::firstOrCreate(
+                        [
+                            'employee_id'   => $employee->id,
+                            'leave_type_id' => $leaveType->id,
+                            'year'          => $date->year,
+                        ],
+                        [
+                            'user_id'   => $user->id,
+                            'allocated' => $leaveType->default_allocation,
+                            'used'      => 0,
+                            'balance'   => $leaveType->default_allocation,
+                        ]
+                    );
+
+                    $balance->used += 1.00;
+                    $balance->balance = $balance->allocated - $balance->used;
+                    $balance->save();
+                }
+
                 $count++;
             }
         }
