@@ -1354,4 +1354,33 @@ class AttendanceController extends Controller implements HasMiddleware
     public function getAttendanceWithRules(Request $request) {
         return $this->index($request);
     }
+
+    public function userAttendance($user_id, Request $request) {
+        try {
+            $perPage = $request->get('per_page', 15);
+            $query = Attendance::byUser($user_id);
+
+            if ($request->has('date')) {
+                $query->byDate($request->date);
+            }
+
+            if ($request->has('from_date') && $request->has('to_date')) {
+                $query->dateRange($request->from_date, $request->to_date);
+            }
+
+            $attendances = $query->with(['employee', 'user.employee'])->orderBy('date', 'desc')->paginate($perPage);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'User attendances retrieved successfully',
+                'data' => $attendances
+            ], 200);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve user attendances',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
 }

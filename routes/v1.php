@@ -122,6 +122,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('update-requests/{id}', [AttendanceUpdateRequestController::class, 'show']);
         Route::post('update-requests/{id}/approve', [AttendanceUpdateRequestController::class, 'approve']);
         Route::post('update-requests/{id}/reject', [AttendanceUpdateRequestController::class, 'reject']);
+        Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
     });
     Route::put('attendances', [AttendanceController::class, 'update']);
     Route::apiResource('attendances', AttendanceController::class);
