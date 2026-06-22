@@ -116,6 +116,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             // Update request with file path
             $payslipRequest->update([
                 'status' => 'approved',
+                'employee_id' => $user->employee_id,
                 'approved_by' => Auth::id(),
                 'approved_at' => now(),
                 'signed_file_path' => $filePath

@@ -192,6 +192,9 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
     Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
     Route::get('/payroll/{payrollRecord}/print', [PayrollController::class, 'printPayslip']);
+    Route::get('/payroll/requests/{payslipRequest}/download', [PayrollController::class, 'downloadSigned']);
+    Route::post('/payroll/request-by-period', [PayrollController::class, 'requestPayslipByPeriod']);
+    Route::get('/payroll/status-by-period', [PayrollController::class, 'getRequestStatusByPeriod']);
     Route::get('/payroll/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
 
 
