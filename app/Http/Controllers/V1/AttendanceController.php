@@ -133,7 +133,7 @@ class AttendanceController extends Controller implements HasMiddleware
                     $data['exceeds_grace_period'] = 0;
                 } else {
                     $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
-
+                    
                     if ($data['clock_in'] > $officeStartDateTime) {
                         $lateMinutes = (int) $officeStartDateTime->diffInMinutes($data['clock_in']);
                         $data['late_minutes'] = $lateMinutes;
@@ -366,7 +366,7 @@ class AttendanceController extends Controller implements HasMiddleware
             if ($testClockIn) {
                 $dateToUse = $data['date'] ?? ($attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date);
                 $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
-
+                
                 if ($testClockIn > $officeStartDateTime) {
                     $lateMinutes = (int) $officeStartDateTime->diffInMinutes($testClockIn);
                     $data['late_minutes'] = $lateMinutes;
@@ -1173,7 +1173,7 @@ class AttendanceController extends Controller implements HasMiddleware
         $employeeId = $request->input('employee_id');
 
         $this->executeProcessRules($date, $employeeId);
-
+        
         return response()->json(['status' => 'success', 'message' => 'Rules processed successfully']);
     }
 
@@ -1253,7 +1253,7 @@ class AttendanceController extends Controller implements HasMiddleware
                 if ($targetLeaveType) {
                     $leaveQuery = \App\Models\Leave::where('from_date', $date)
                         ->where('leave_type_id', $targetLeaveType);
-
+                    
                     if ($empId) {
                         $leaveQuery->where('employee_id', $empId);
                     } else {
@@ -1320,7 +1320,7 @@ class AttendanceController extends Controller implements HasMiddleware
                         }
 
                         $leaveTypeObj = \App\Models\LeaveType::find($targetLeaveType);
-
+                        
                         $balanceQuery = [
                             'leave_type_id' => $targetLeaveType,
                             'year' => date('Y')

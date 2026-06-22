@@ -116,16 +116,14 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
         Route::post('process-rules', [AttendanceController::class, 'processRules']);
         Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
-        Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
 
         // Attendance Update Requests
         Route::get('update-requests', [AttendanceUpdateRequestController::class, 'index']);
         Route::get('update-requests/{id}', [AttendanceUpdateRequestController::class, 'show']);
         Route::post('update-requests/{id}/approve', [AttendanceUpdateRequestController::class, 'approve']);
         Route::post('update-requests/{id}/reject', [AttendanceUpdateRequestController::class, 'reject']);
+        Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
     });
-
-    // Route::get('attendances/user/{user_id}', [AttendanceController::class, 'userAttendance']);
     Route::put('attendances', [AttendanceController::class, 'update']);
     Route::apiResource('attendances', AttendanceController::class);
 
@@ -194,6 +192,9 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::post('/payroll/{payrollRecord}/request', [PayrollController::class, 'requestPayslip']);
     Route::get('/payroll/{payrollRecord}/status', [PayrollController::class, 'getRequestStatus']);
     Route::get('/payroll/{payrollRecord}/print', [PayrollController::class, 'printPayslip']);
+    Route::get('/payroll/requests/{payslipRequest}/download', [PayrollController::class, 'downloadSigned']);
+    Route::post('/payroll/request-by-period', [PayrollController::class, 'requestPayslipByPeriod']);
+    Route::get('/payroll/status-by-period', [PayrollController::class, 'getRequestStatusByPeriod']);
     Route::get('/payroll/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
 
 

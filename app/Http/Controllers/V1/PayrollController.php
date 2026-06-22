@@ -21,8 +21,8 @@ class PayrollController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('permission:Payroll View', only: ['index']),
-            new Middleware('permission:Payroll Request', only: ['requestPayslip']),
-            new Middleware('permission:Payroll Print', only: ['printPayslip']),
+            new Middleware('permission:Payroll Request', only: ['requestPayslip', 'requestPayslipByPeriod']),
+            new Middleware('permission:Payroll Print', only: ['printPayslip', 'downloadSigned']),
             new Middleware('permission:Payroll Metrics', only: ['getPayrollMetrics'])
         ];
     }
@@ -259,6 +259,133 @@ class PayrollController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to download payslip: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function downloadSigned($payslipRequest)
+    {
+        try {
+            $user = Auth::user();
+
+            $request = PayslipRequest::where('id', $payslipRequest)
+                ->where('user_id', $user->id)
+                ->where('status', 'approved')
+                ->whereNotNull('signed_file_path')
+                ->first();
+
+            if (! $request) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No approved signed payslip found',
+                ], 404);
+            }
+
+            $filePath = $request->signed_file_path;
+
+            if (Storage::disk('public')->exists($filePath)) {
+                $file = Storage::disk('public')->get($filePath);
+                $filename = "payslip_signed_{$user->name}.pdf";
+
+                return response($file, 200)
+                    ->header('Content-Type', 'application/pdf')
+                    ->header('Content-Disposition', 'attachment; filename="'.$filename.'"');
+            }
+
+            $fullPath = storage_path('app/public/'.$filePath);
+            if (file_exists($fullPath)) {
+                return response()->download($fullPath, "payslip_signed_{$user->name}.pdf");
+            }
+
+            \Log::error('Signed payslip file not found', [
+                'file_path' => $filePath,
+                'user_id' => $user->id,
+                'request_id' => $request->id,
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Signed payslip file not found on server',
+            ], 404);
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to download signed payslip', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to download signed payslip: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function requestPayslipByPeriod(Request $request)
+    {
+        try {
+            $request->validate([
+                'period' => 'required|string',
+                'reason' => 'nullable|string|max:500',
+            ]);
+
+            $user = Auth::user();
+
+            $payslipRequest = PayslipRequest::create([
+                'user_id' => $user->id,
+                'employee_id' => $user->employee_id,
+                'period' => $request->period,
+                'status' => 'pending',
+                'reason' => $request->reason,
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Request submitted successfully',
+                'request' => $payslipRequest,
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to submit request: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function getRequestStatusByPeriod(Request $request)
+    {
+        try {
+            $period = $request->query('period');
+            if (! $period) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Period query parameter is required',
+                ], 400);
+            }
+
+            $payslipRequest = PayslipRequest::where('user_id', Auth::id())
+                ->where('period', $period)
+                ->with('approver')
+                ->first();
+
+            return response()->json([
+                'status' => 'success',
+                'request' => $payslipRequest,
+                'payroll_record_id' => $payslipRequest?->payroll_record_id,
+                'can_print' => $payslipRequest && $payslipRequest->status === 'approved' && $payslipRequest->signed_file_path,
+            ]);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to get request status: '.$th->getMessage(),
             ], 500);
         }
     }
