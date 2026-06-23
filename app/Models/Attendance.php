@@ -21,6 +21,8 @@ class Attendance extends Model
         'in_longitude',
         'out_latitude',
         'out_longitude',
+        'in_geofence_name',
+        'out_geofence_name',
         'in_ipAddress',
         'out_ipAddress',
         'working_hours',

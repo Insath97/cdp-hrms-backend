@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use App\Models\Attendance;
 use App\Models\User;
+use App\Models\Geofence;
+use App\Http\Controllers\V1\GeofenceController;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\ActivityLogTrait;
@@ -117,6 +119,59 @@ class AttendanceController extends Controller implements HasMiddleware
                 $user = User::with('employee')->find($data['user_id']);
                 if ($user && $user->employee) {
                     $data['employee_id'] = $user->employee->id;
+                }
+            }
+
+            // Geofence check for clock-in
+            if (isset($data['clock_in']) && !isset($data['clock_out'])) {
+                $latitude = $request->input('latitude');
+                $longitude = $request->input('longitude');
+
+                if ($latitude !== null && $longitude !== null) {
+                    $userForCheck = isset($user) ? $user : User::find($data['user_id']);
+
+                    // 1. Check assigned geofences
+                    $matchedGeofence = GeofenceController::checkCoordinates($latitude, $longitude, $userForCheck);
+                    if ($matchedGeofence) {
+                        $data['in_latitude'] = $latitude;
+                        $data['in_longitude'] = $longitude;
+                        $data['in_geofence_name'] = $matchedGeofence->name;
+                    } else {
+                        $assignedGeofenceCount = $userForCheck?->geofences()->where('is_active', true)->count() ?? 0;
+                        if ($assignedGeofenceCount > 0) {
+                            return response()->json([
+                                'status' => 'error',
+                                'message' => 'You are outside your assigned attendance zone. Please move to an approved location.',
+                            ], 403);
+                        }
+                    }
+
+                    // 2. Check user-specific allowed locations (only if geofence didn't match and user has no geofences)
+                    $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
+                    if ($allowedLocations && $allowedLocations->isNotEmpty()) {
+                        foreach ($allowedLocations as $loc) {
+                            $gf = $loc->geofence;
+                            if (!$gf || !$gf->is_active) continue;
+                            $dist = GeofenceController::haversineDistance(
+                                (float) $latitude,
+                                (float) $longitude,
+                                (float) $gf->latitude,
+                                (float) $gf->longitude
+                            );
+                            if ($dist <= (float) $gf->radius_meters) {
+                                $data['in_latitude'] = $latitude;
+                                $data['in_longitude'] = $longitude;
+                                $data['in_geofence_name'] = $gf->name;
+                                break;
+                            }
+                        }
+                        if (!isset($data['in_geofence_name'])) {
+                            return response()->json([
+                                'status' => 'error',
+                                'message' => 'You are outside your allowed locations. Please move to an approved area.',
+                            ], 403);
+                        }
+                    }
                 }
             }
 
@@ -467,6 +522,54 @@ class AttendanceController extends Controller implements HasMiddleware
 
             // Store full datetime
             $attendance->clock_out = $clockOutDateTime;
+
+            // Geofence check for clock-out
+            $latitude = $request->input('latitude');
+            $longitude = $request->input('longitude');
+
+            if ($latitude !== null && $longitude !== null) {
+                $matchedGeofence = GeofenceController::checkCoordinates($latitude, $longitude, $user);
+                if ($matchedGeofence) {
+                    $attendance->out_latitude = $latitude;
+                    $attendance->out_longitude = $longitude;
+                    $attendance->out_geofence_name = $matchedGeofence->name;
+                } else {
+                    $assignedCount = $user->geofences()->where('is_active', true)->count();
+                    if ($assignedCount > 0) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'You are outside your assigned attendance zone. Please move to an approved location to clock out.',
+                        ], 403);
+                    }
+
+                    // Fallback: check user-specific allowed locations
+                    $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
+                    if ($allowedLocations->isNotEmpty()) {
+                        foreach ($allowedLocations as $loc) {
+                            $gf = $loc->geofence;
+                            if (!$gf || !$gf->is_active) continue;
+                            $dist = GeofenceController::haversineDistance(
+                                (float) $latitude,
+                                (float) $longitude,
+                                (float) $gf->latitude,
+                                (float) $gf->longitude
+                            );
+                            if ($dist <= (float) $gf->radius_meters) {
+                                $attendance->out_latitude = $latitude;
+                                $attendance->out_longitude = $longitude;
+                                $attendance->out_geofence_name = $gf->name;
+                                break;
+                            }
+                        }
+                        if (!$attendance->out_geofence_name) {
+                            return response()->json([
+                                'status' => 'error',
+                                'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
+                            ], 403);
+                        }
+                    }
+                }
+            }
 
             // Capture out IP Address
             if (!$attendance->out_ipAddress) {
@@ -1357,6 +1460,10 @@ class AttendanceController extends Controller implements HasMiddleware
 
     public function userAttendance($user_id, Request $request) {
         try {
+            Log::info('userAttendance API called', [
+                'requested_user_id' => $user_id,
+                'auth_user_id' => Auth::id(),
+            ]);
             $perPage = $request->get('per_page', 15);
             $query = Attendance::byUser($user_id);
 
@@ -1369,6 +1476,12 @@ class AttendanceController extends Controller implements HasMiddleware
             }
 
             $attendances = $query->with(['employee', 'user.employee'])->orderBy('date', 'desc')->paginate($perPage);
+
+            Log::info('userAttendance API records retrieved', [
+                'requested_user_id' => $user_id,
+                'count' => $attendances->count(),
+                'record_dates' => $attendances->pluck('date')->toArray(),
+            ]);
 
             return response()->json([
                 'status' => 'success',

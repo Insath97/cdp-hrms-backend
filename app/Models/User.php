@@ -112,6 +112,16 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasMany(PasswordChangeRequest::class);
     }
 
+    public function geofences()
+    {
+        return $this->belongsToMany(Geofence::class);
+    }
+
+    public function allowedLocations()
+    {
+        return $this->hasMany(UserAllowedLocation::class);
+    }
+
     /* Helper Methods */
     public function canLogin(): bool
     {

@@ -24,7 +24,7 @@ class UserController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:User Index', only: ['index', 'show']),
+            new Middleware('permission:User Index', only: ['index', 'show', 'getUserList']),
             new Middleware('permission:User Create', only: ['store']),
             new Middleware('permission:User Update', only: ['update']),
             new Middleware('permission:User Delete', only: ['destroy']),
@@ -92,6 +92,30 @@ class UserController extends Controller implements HasMiddleware
                 'status' => 'error',
                 'message' => 'Failed to retrieve users',
                 'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getUserList()
+    {
+        try {
+            $users = User::where('is_active', true)
+                ->select('id', 'name', 'email', 'username', 'employee_id')
+                ->with('employee:id,full_name')
+                ->orderBy('name', 'asc')
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Users retrieved successfully',
+                'data' => $users,
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to retrieve user list: ' . $th->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve users',
+                'error' => $th->getMessage(),
             ], 500);
         }
     }

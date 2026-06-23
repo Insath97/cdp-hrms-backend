@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\V1\GeofenceController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -54,6 +55,23 @@ class AuthController extends Controller
                     'status' => 'error',
                     'message' => 'Account is deactivated'
                 ], 401);
+            }
+
+            // Geofence check on login
+            $latitude = $request->input('latitude');
+            $longitude = $request->input('longitude');
+            if ($latitude !== null && $longitude !== null) {
+                $matchedGeofence = GeofenceController::checkCoordinates($latitude, $longitude, $user);
+                if (!$matchedGeofence) {
+                    $assignedCount = $user->geofences()->where('is_active', true)->count();
+                    if ($assignedCount > 0) {
+                        Auth::guard('api')->logout();
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'Login is restricted to approved locations. You are outside your assigned area.',
+                        ], 403);
+                    }
+                }
             }
 
             $isFirstLogin = is_null($user->password_changed_at);

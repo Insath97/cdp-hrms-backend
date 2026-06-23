@@ -127,6 +127,9 @@ class PermissionsSeeder extends Seeder
             /* Activity Log Management */
             ['name' => 'Activity Log Index', 'group_name' => 'Activity Log Permissions'],
             ['name' => 'Activity Log Show', 'group_name' => 'Activity Log Permissions'],
+
+            /* Geofence Management */
+            ['name' => 'Geofence Manage', 'group_name' => 'Geofence Management Permissions'],
             ];
 
         foreach ($permissions as $permission) {

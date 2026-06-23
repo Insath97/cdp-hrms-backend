@@ -29,6 +29,8 @@ use App\Http\Controllers\V1\ActivityLogController;
 use App\Http\Controllers\V1\PasswordController;
 use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
 use App\Http\Controllers\V1\Admin\AbsentMarkingController;
+use App\Http\Controllers\V1\GeofenceController;
+use App\Http\Controllers\V1\UserAllowedLocationController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -154,6 +156,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::apiResource('employees', EmployeeController::class);
 
     Route::patch('users/{id}/toggle-status', [UserController::class, 'toggleStatus']);
+    Route::get('users/list', [UserController::class, 'getUserList']);
     Route::apiResource('users', UserController::class);
 
     // Fingerprint Device Routes
@@ -184,6 +187,22 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     // Webhook endpoint (no authentication, device will call this)
     Route::post('/webhooks/fingerprint', [FingerprintWebhookController::class, 'handleWebhook']);
+
+    // User Allowed Locations routes
+    Route::get('/user-allowed-locations/my', [UserAllowedLocationController::class, 'myLocations']);
+    Route::post('/user-allowed-locations/check', [UserAllowedLocationController::class, 'checkLocation']);
+    Route::post('/user-allowed-locations/assign/{user}', [UserAllowedLocationController::class, 'assignToUser']);
+    Route::post('/user-allowed-locations/assign-geofences/{user}', [UserAllowedLocationController::class, 'assignGeofences']);
+    Route::apiResource('/user-allowed-locations', UserAllowedLocationController::class)->only(['index', 'store', 'update', 'destroy']);
+
+    // Geofence routes
+    Route::get('/geofences/my', [GeofenceController::class, 'myGeofences']);
+    Route::get('/geofences', [GeofenceController::class, 'index']);
+    Route::post('/geofences', [GeofenceController::class, 'store']);
+    Route::put('/geofences/{geofence}', [GeofenceController::class, 'update']);
+    Route::delete('/geofences/{geofence}', [GeofenceController::class, 'destroy']);
+    Route::post('/geofences/{geofence}/assign-users', [GeofenceController::class, 'assignUsers']);
+    Route::get('/geofences/user/{user}', [GeofenceController::class, 'getUserGeofences']);
 
 
     // Employee routes
