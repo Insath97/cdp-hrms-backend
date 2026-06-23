@@ -5,7 +5,9 @@ namespace App\Http\Controllers\V1;
 use App\Http\Controllers\Controller;
 use App\Models\PayrollRecord;
 use App\Models\PayslipRequest;
+use App\Models\Employee;
 use App\Models\User;
+use App\Services\CdpConnectService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -86,14 +88,101 @@ class PayrollAdminController extends Controller implements HasMiddleware
             $payrollRecord = $payslipRequest->payrollRecord;
             $user = $payslipRequest->user;
             $approver = Auth::user();
-            
+
+            // Handle period-based requests (payroll_record_id is null)
+            if (! $payrollRecord) {
+                $payrollRecord = PayrollRecord::where('user_id', $user->id)
+                    ->where('month', 'like', '%'.$payslipRequest->period.'%')
+                    ->first();
+            }
+
+            if (! $payrollRecord) {
+                $employee = \App\Models\Employee::find($user->employee_id);
+                $basic = $employee?->basic_salary ?? 0;
+                $payrollRecord = new \stdClass();
+                $payrollRecord->month = $payslipRequest->month_label ?? $payslipRequest->period ?? 'Unknown';
+                $payrollRecord->basic = $basic;
+                $payrollRecord->allowances = 0;
+                $payrollRecord->deductions = 0;
+                $payrollRecord->epf_employee = 0;
+                $payrollRecord->epf_employer = 0;
+                $payrollRecord->etf_employer = 0;
+                $payrollRecord->net = $basic;
+                $payrollRecord->id = 'N/A';
+            }
+
+            $period_label = $payrollRecord->month;
+            $period = $payslipRequest->period ?? $payrollRecord->month;
+
+            // Collect performance metrics
+            $metrics = [
+                'basic_salary' => 0,
+                'vehicle_allowance' => 0,
+                'travel_reimbursement' => 0,
+                'performance_allowance' => 0,
+                'incentive' => 0,
+                'position_allowance' => 0,
+                'total_package' => 0,
+                'monthly_target' => 0,
+                'achievement_percentage' => 0,
+                'payment_percentage' => 0,
+                'payment_criteria' => 'No',
+                'calculated_payment' => 0,
+            ];
+
+            try {
+                $employee = Employee::with('designation')->find($user->employee_id);
+                if ($employee && $employee->designation) {
+                    $des = $employee->designation;
+                    $metrics['basic_salary'] = (float) ($des->basic_salary ?? 0);
+                    $metrics['vehicle_allowance'] = (float) ($des->vehicle_rental ?? 0);
+                    $metrics['travel_reimbursement'] = (float) ($des->travel_reimbursement ?? 0);
+                    $metrics['performance_allowance'] = (float) ($des->performance_allowance ?? 0);
+                    $metrics['incentive'] = (float) ($des->incentive ?? 0);
+                    $metrics['position_allowance'] = (float) ($des->position_allowance ?? 0);
+                    $metrics['total_package'] = (float) ($des->total_package ?? 0);
+                    $metrics['monthly_target'] = (float) ($des->monthly_target ?? 0);
+                }
+
+                $cdpService = app(CdpConnectService::class);
+                $cdpUser = $employee?->employee_code ? $cdpService->fetchEmployeeMetrics($employee->employee_code, $period) : null;
+                $achievement = null;
+                if ($cdpUser && isset($cdpUser['metrics'])) {
+                    $m = $cdpUser['metrics'];
+                    $achievement = (float) ($m['achievement_percentage'] ?? $m['performance_percentage'] ?? $m['achievement'] ?? $m['performance'] ?? $m['score'] ?? 0);
+                }
+                if ($achievement === null) $achievement = 0;
+
+                $metrics['achievement_percentage'] = $achievement;
+
+                if ($achievement < 50) {
+                    $metrics['payment_percentage'] = 0;
+                    $metrics['payment_criteria'] = 'No';
+                } elseif ($achievement >= 50 && $achievement <= 65) {
+                    $metrics['payment_percentage'] = 50;
+                    $metrics['payment_criteria'] = '50% Total Package';
+                } elseif ($achievement > 65 && $achievement <= 90) {
+                    $metrics['payment_percentage'] = 75;
+                    $metrics['payment_criteria'] = '75% Total Package';
+                } else {
+                    $metrics['payment_percentage'] = 100;
+                    $metrics['payment_criteria'] = '100% Total Package';
+                }
+
+                $metrics['calculated_payment'] = ($metrics['payment_percentage'] / 100) * $metrics['total_package'];
+            } catch (\Throwable $th) {
+                \Log::warning('Failed to fetch metrics for payslip PDF', ['error' => $th->getMessage()]);
+            }
+
             // Prepare data for PDF
             $data = [
                 'payroll' => $payrollRecord,
                 'user' => $user,
                 'signature' => $request->signature_data,
                 'approved_by' => $approver,
-                'approved_date' => now()
+                'approved_date' => now(),
+                'period_label' => $period_label,
+                'metrics' => $metrics,
             ];
             
             // Generate PDF
@@ -106,8 +195,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
             }
             
             // Save PDF file - clean the month string to remove spaces
-            $cleanMonth = str_replace(' ', '_', $payrollRecord->month);
-            $fileName = "signed_{$user->id}_{$payrollRecord->id}_{$cleanMonth}.pdf";
+            $cleanMonth = str_replace(' ', '_', $period_label);
+            $fileName = "signed_{$user->id}_{$payslipRequest->period}_{$cleanMonth}.pdf";
             $filePath = "payslips/" . $fileName;
             
             // Save the PDF using Storage facade
@@ -124,13 +213,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
             
             DB::commit();
 
-            $this->logActivity('APPROVE', 'Payroll', "Approved payslip request (ID: {$payslipRequest->id}) for month {$payrollRecord->month}");
+            $this->logActivity('APPROVE', 'Payroll', "Approved payslip request (ID: {$payslipRequest->id}) for month {$period_label}");
             
             \Log::info('Payslip request approved', [
                 'user_id' => Auth::id(),
                 'request_id' => $payslipRequest->id,
                 'employee_id' => $user->id,
-                'month' => $payrollRecord->month,
+                'month' => $period_label,
                 'file_path' => $filePath
             ]);
             

@@ -116,16 +116,14 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
         Route::post('process-rules', [AttendanceController::class, 'processRules']);
         Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
-        Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
 
         // Attendance Update Requests
         Route::get('update-requests', [AttendanceUpdateRequestController::class, 'index']);
         Route::get('update-requests/{id}', [AttendanceUpdateRequestController::class, 'show']);
         Route::post('update-requests/{id}/approve', [AttendanceUpdateRequestController::class, 'approve']);
         Route::post('update-requests/{id}/reject', [AttendanceUpdateRequestController::class, 'reject']);
+        Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
     });
-
-    // Route::get('attendances/user/{user_id}', [AttendanceController::class, 'userAttendance']);
     Route::put('attendances', [AttendanceController::class, 'update']);
     Route::apiResource('attendances', AttendanceController::class);
 
