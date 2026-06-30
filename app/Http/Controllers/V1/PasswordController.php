@@ -75,11 +75,20 @@ class PasswordController extends Controller
 
             } else {
                 // Subsequent change: requires admin approval
-                PasswordChangeRequest::create([
+                $changeRequest = PasswordChangeRequest::create([
                     'user_id' => $user->id,
                     'employee_id' => $user->employee_id,
                     'status' => 'pending',
                 ]);
+
+                // Send email notification to user
+                $user->notify(new \App\Notifications\PasswordRequestUserNotification($changeRequest, 'password_change'));
+
+                // Send notification to admin users
+                $admins = \App\Models\User::where('user_type', 'admin')->where('is_active', true)->get();
+                foreach ($admins as $admin) {
+                    $admin->notify(new \App\Notifications\PasswordChangeRequestNotification($changeRequest, 'password_change'));
+                }
 
                 return response()->json([
                     'status' => 'success',
@@ -212,11 +221,20 @@ class PasswordController extends Controller
             }
 
             // Forgot password always requires admin approval
-            PasswordChangeRequest::create([
+            $changeRequest = PasswordChangeRequest::create([
                 'user_id' => $user->id,
                 'employee_id' => $user->employee_id,
                 'status' => 'pending',
             ]);
+
+            // Send email notification to user
+            $user->notify(new \App\Notifications\PasswordRequestUserNotification($changeRequest, 'forgot_password'));
+
+            // Send notification to admin users
+            $admins = \App\Models\User::where('user_type', 'admin')->where('is_active', true)->get();
+            foreach ($admins as $admin) {
+                $admin->notify(new \App\Notifications\PasswordChangeRequestNotification($changeRequest, 'forgot_password'));
+            }
 
             return response()->json([
                 'status' => 'success',

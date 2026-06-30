@@ -27,6 +27,7 @@ use App\Http\Controllers\V1\AttendanceUpdateRequestController;
 use App\Http\Controllers\V1\DatabaseController;
 use App\Http\Controllers\V1\ActivityLogController;
 use App\Http\Controllers\V1\PasswordController;
+use App\Http\Controllers\V1\NotificationController;
 use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
 use App\Http\Controllers\V1\Admin\AbsentMarkingController;
 use App\Http\Controllers\V1\GeofenceController;
@@ -252,4 +253,13 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     // Activity Logs routes
     Route::apiResource('activity-logs', ActivityLogController::class)->only(['index', 'show']);
+
+    // Notifications routes
+    Route::prefix('notifications')->group(function () {
+        Route::get('/', [NotificationController::class, 'index']);
+        Route::get('/unread', [NotificationController::class, 'unread']);
+        Route::post('/{id}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::delete('/{id}', [NotificationController::class, 'destroy']);
+    });
 });
