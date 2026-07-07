@@ -21,7 +21,7 @@ class PayrollController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('permission:Payroll View', only: ['index']),
-            new Middleware('permission:Payroll Request', only: ['requestPayslip', 'requestPayslipByPeriod']),
+            new Middleware('permission:Payroll Request', only: ['requestPayslip']),
             new Middleware('permission:Payroll Print', only: ['printPayslip', 'downloadSigned']),
             new Middleware('permission:Payroll Metrics', only: ['getPayrollMetrics'])
         ];
@@ -425,6 +425,15 @@ class PayrollController extends Controller implements HasMiddleware
 
             if ($employee->employee_code) {
                 $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
+
+                \Log::info('CDP User Response', [
+        'employee_code' => $employee->employee_code,
+        'period' => $period,
+        'cdpUser' => $cdpUser,
+        'has_metrics' => isset($cdpUser['metrics']),
+        'metrics_value' => $cdpUser['metrics'] ?? null,
+    ]);
+    
                 if ($cdpUser && isset($cdpUser['metrics'])) {
                     $metrics = $cdpUser['metrics'];
                     // Try different possible keys for achievement / performance

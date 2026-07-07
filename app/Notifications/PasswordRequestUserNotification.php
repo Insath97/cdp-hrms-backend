@@ -3,15 +3,11 @@
 namespace App\Notifications;
 
 use App\Models\PasswordChangeRequest;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class PasswordRequestUserNotification extends Notification implements ShouldQueue
+class PasswordRequestUserNotification extends Notification
 {
-    use Queueable;
-
     public $changeRequest;
     public $requestType; // 'forgot_password' or 'password_change'
 

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PasswordChangeRequest;
 use App\Services\SmsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class PasswordChangeRequestController extends Controller
 {
@@ -68,7 +69,13 @@ class PasswordChangeRequestController extends Controller
 
             // Send SMS
             $message = "Your OTP for password change is: {$otp}. Valid for 1 minute.";
-            $this->smsService->sendSms($changeRequest->employee->phone_primary, $message);
+            $smsSent = $this->smsService->sendSms($changeRequest->employee->phone_primary, $message);
+            Log::info('Admin approved password request: OTP SMS sent', [
+                'change_request_id' => $changeRequest->id,
+                'employee_id' => $changeRequest->employee_id,
+                'phone' => $changeRequest->employee->phone_primary,
+                'sms_sent' => $smsSent,
+            ]);
 
             return response()->json([
                 'status' => 'success',

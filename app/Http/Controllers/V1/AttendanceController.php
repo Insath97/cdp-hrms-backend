@@ -361,6 +361,51 @@ class AttendanceController extends Controller implements HasMiddleware
                     'request_id' => $updateRequest->id
                 ]);
 
+                // Send email notification to the reporting manager
+                try {
+                    $updateRequest->load('manager');
+                    $manager = $updateRequest->manager;
+                    if ($manager) {
+                        $managerEmail = $manager->email;
+                        if (empty($managerEmail)) {
+                            // Fallback to manager's user account email
+                            $managerUser = \App\Models\User::where('employee_id', $manager->id)->first();
+                            if ($managerUser) {
+                                $managerEmail = $managerUser->email;
+                            }
+                        }
+
+                        if (!empty($managerEmail)) {
+                            $emailData = [
+                                'manager_name' => $manager->full_name ?? ($manager->f_name . ' ' . $manager->l_name),
+                                'employee_name' => $employee->full_name ?? ($employee->f_name . ' ' . $employee->l_name),
+                                'date' => $date,
+                                'requested_clock_in' => $requestedClockIn ? $requestedClockIn->toTimeString() : null,
+                                'requested_clock_out' => $requestedClockOut ? $requestedClockOut->toTimeString() : null,
+                                'reason' => $updateRequest->reason,
+                                'action_url' => rtrim(config('app.frontend_url'), '/') . '/attendances/update-requests'
+                            ];
+
+                            \Illuminate\Support\Facades\Mail::to($managerEmail)->send(new \App\Mail\AttendanceUpdateRequestMail($emailData));
+                            Log::info('Attendance update request email sent successfully to reporting manager', [
+                                'manager_id' => $manager->id,
+                                'manager_email' => $managerEmail,
+                                'request_id' => $updateRequest->id
+                            ]);
+                        } else {
+                            Log::warning('Could not find email address for reporting manager', [
+                                'manager_id' => $manager->id,
+                                'request_id' => $updateRequest->id
+                            ]);
+                        }
+                    }
+                } catch (\Throwable $emailError) {
+                    Log::error('Failed to send attendance update request email to manager', [
+                        'error' => $emailError->getMessage(),
+                        'request_id' => $updateRequest->id
+                    ]);
+                }
+
                 return response()->json([
                     'status' => 'success',
                     'message' => 'Attendance update request submitted for manager approval',
@@ -500,16 +545,26 @@ class AttendanceController extends Controller implements HasMiddleware
         try {
             $user = Auth::user();
 
-            $attendance = Attendance::where('user_id', $user->id)
-                ->whereDate('date', now()->toDateString())
-                ->whereNull('clock_out')
-                ->latest()
-                ->first();
+            $attendance = null;
+            $recordId = $request->input('id');
+            if ($recordId) {
+                $attendance = Attendance::where('id', $recordId)
+                    ->where('user_id', $user->id)
+                    ->whereNull('clock_out')
+                    ->first();
+            }
+            if (!$attendance) {
+                $attendance = Attendance::where('user_id', $user->id)
+                    ->whereDate('date', now()->toDateString())
+                    ->whereNull('clock_out')
+                    ->latest()
+                    ->first();
+            }
 
             if (!$attendance) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'No active attendance found for today'
+                    'message' => 'No active attendance found'
                 ], 404);
             }
 

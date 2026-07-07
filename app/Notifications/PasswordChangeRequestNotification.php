@@ -3,15 +3,11 @@
 namespace App\Notifications;
 
 use App\Models\PasswordChangeRequest;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class PasswordChangeRequestNotification extends Notification implements ShouldQueue
+class PasswordChangeRequestNotification extends Notification
 {
-    use Queueable;
-
     public $changeRequest;
     public $requestType; // 'forgot_password' or 'password_change'
 
@@ -47,7 +43,7 @@ class PasswordChangeRequestNotification extends Notification implements ShouldQu
 
         $frontendUrl = env('FRONTEND_URL', 'http://localhost:5173/');
         // Link to the admin panel where password requests can be reviewed
-        $reviewUrl = rtrim($frontendUrl, '/') . '/admin/password-requests'; 
+        $reviewUrl = rtrim($frontendUrl, '/') . '/admin/password-requests';
 
         return (new MailMessage)
             ->subject("Pending {$typeLabel} Request - " . config('app.name'))
@@ -57,7 +53,7 @@ class PasswordChangeRequestNotification extends Notification implements ShouldQu
             ->line("• Name: {$requesterName}")
             ->line("• Email: {$requesterEmail}")
             ->line("• Submitted At: " . $this->changeRequest->created_at->toDayDateTimeString())
-            ->action('Review Request', $reviewUrl)
+            // ->action('Review Request', $reviewUrl)
             ->line('Once reviewed, you can approve or reject the request through the administration portal.')
             ->salutation("Regards,\n" . config('app.name') . " Team");
     }
@@ -71,13 +67,20 @@ class PasswordChangeRequestNotification extends Notification implements ShouldQu
     {
         $user = $this->changeRequest->user;
         $employee = $this->changeRequest->employee;
+        $requesterName = $user ? $user->name : ($employee ? $employee->full_name : 'Unknown User');
+        $employeeCode = $employee ? $employee->employee_code : 'N/A';
+        $profileImage = $employee ? $employee->profile_image : null;
         return [
             'password_change_request_id' => $this->changeRequest->id,
             'user_id' => $this->changeRequest->user_id,
             'employee_id' => $this->changeRequest->employee_id,
-            'requester_name' => $user ? $user->name : ($employee ? $employee->full_name : 'Unknown User'),
+            'employee_name' => $requesterName,
+            'employee_code' => $employeeCode,
+            'profile_image' => $profileImage,
+            'requester_name' => $requesterName,
             'request_type' => $this->requestType,
-            'message' => "A new " . ($this->requestType === 'forgot_password' ? 'forgot password' : 'password change') . " request is pending approval.",
+            'type' => 'password_request',
+            'message' => "{$requesterName} ({$employeeCode}) sent a " . ($this->requestType === 'forgot_password' ? 'forgot password' : 'password change') . " request.",
         ];
     }
 }
