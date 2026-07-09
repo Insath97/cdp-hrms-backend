@@ -29,11 +29,12 @@ class DesignationTest extends TestCase
             'performance_allowance' => 15000,
             'incentive' => 8000,
             'position_allowance' => 12000,
+            'mobile_payment' => 3000,
             'level' => 'senior',
             'is_active' => true
         ]);
 
-        $this->assertEquals(130000, $designation->total_package);
+        $this->assertEquals(133000, $designation->total_package);
     }
 
     public function test_total_package_is_recalculated_on_update()
@@ -54,17 +55,19 @@ class DesignationTest extends TestCase
             'performance_allowance' => 15000,
             'incentive' => 8000,
             'position_allowance' => 12000,
+            'mobile_payment' => 3000,
             'level' => 'senior',
             'is_active' => true
         ]);
 
-        $this->assertEquals(130000, $designation->total_package);
+        $this->assertEquals(133000, $designation->total_package);
 
         $designation->update([
             'basic_salary' => 90000,
-            'incentive' => 0
+            'incentive' => 0,
+            'mobile_payment' => 5000
         ]);
 
-        $this->assertEquals(132000, $designation->total_package);
+        $this->assertEquals(137000, $designation->total_package);
     }
 }

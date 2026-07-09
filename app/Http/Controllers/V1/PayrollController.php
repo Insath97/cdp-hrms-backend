@@ -422,6 +422,12 @@ class PayrollController extends Controller implements HasMiddleware
 
             $achievement = null;
             $metricsNotFound = true;
+            $commission = 0.0;
+            $overrideCommission = 0.0;
+            $totalCommission = 0.0;
+            $targetAmount = 0.0;
+            $achievementAmount = 0.0;
+            $recoverAmount = 0.0;
 
             if ($employee->employee_code) {
                 $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
@@ -436,6 +442,14 @@ class PayrollController extends Controller implements HasMiddleware
     
                 if ($cdpUser && isset($cdpUser['metrics'])) {
                     $metrics = $cdpUser['metrics'];
+                    
+                    $commission = (float) ($metrics['commission'] ?? 0.0);
+                    $overrideCommission = (float) ($metrics['override_commission'] ?? 0.0);
+                    $totalCommission = (float) ($metrics['total_commission'] ?? 0.0);
+                    $targetAmount = (float) ($metrics['target_amount'] ?? 0.0);
+                    $achievementAmount = (float) ($metrics['achievement_amount'] ?? 0.0);
+                    $recoverAmount = (float) ($metrics['recover_amount'] ?? 0.0);
+
                     // Try different possible keys for achievement / performance
                     $achievementVal = $metrics['achievement_percentage']
                         ?? $metrics['performance_percentage']
@@ -463,9 +477,9 @@ class PayrollController extends Controller implements HasMiddleware
 
             // Boundary logic:
             // Below 50% -> No (0%)
-            // Above 50% to 65% -> 50% Total Package
-            // 65% - 90% -> 75% Total Package
-            // 90% - 100% -> 100% Total Package
+            // 50% - 65% -> 50% Total Package
+            // >65% - 90% -> 75% Total Package
+            // Over 90% -> 100% Total Package + Mobile Payment
             $paymentPercentage = 0;
             $paymentCriteria = 'No';
 
@@ -479,12 +493,18 @@ class PayrollController extends Controller implements HasMiddleware
                 $paymentPercentage = 75;
                 $paymentCriteria = '75% Total Package';
             } else {
-                // > 90
                 $paymentPercentage = 100;
-                $paymentCriteria = '100% Total Package';
+                $paymentCriteria = '100% Package + Mobile Bonus';
             }
 
             $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
+
+            // For >90% achievement, add mobile_payment as bonus on top of full package
+            $mobilePaymentBonus = 0.0;
+            if ($achievement > 90) {
+                $calculatedPayment = $totalPackage;
+                $mobilePaymentBonus = $designation ? (float) ($designation->mobile_payment ?? 0) : 0.0;
+            }
 
             $monthlyTarget = $designation ? (float) ($designation->monthly_target ?? 0) : 0.0;
             $basicSalary = $designation ? (float) ($designation->basic_salary ?? 0) : 0.0;
@@ -493,6 +513,8 @@ class PayrollController extends Controller implements HasMiddleware
             $performanceAllowance = $designation ? (float) ($designation->performance_allowance ?? 0) : 0.0;
             $incentive = $designation ? (float) ($designation->incentive ?? 0) : 0.0;
             $positionAllowance = $designation ? (float) ($designation->position_allowance ?? 0) : 0.0;
+            $mobilePayment = $designation ? (float) ($designation->mobile_payment ?? 0) : 0.0;
+            $howMuchPaid = $calculatedPayment + $mobilePaymentBonus;
             return response()->json([
                 'status' => 'success',
                 'data' => [
@@ -508,12 +530,20 @@ class PayrollController extends Controller implements HasMiddleware
                     'monthly_target' => $monthlyTarget,
                     'incentive' => $incentive,
                     'position_allowance' => $positionAllowance,
+                    'mobile_payment' => $mobilePayment,
+                    'mobile_payment_bonus' => $mobilePaymentBonus,
                     'total_package' => $totalPackage,
                     'achievement_percentage' => $achievement,
                     'payment_percentage' => $paymentPercentage,
                     'payment_criteria' => $paymentCriteria,
                     'calculated_payment' => $calculatedPayment,
-                    'how_much_paid' => $calculatedPayment,
+                    'how_much_paid' => $howMuchPaid,
+                    'commission' => $commission,
+                    'override_commission' => $overrideCommission,
+                    'total_commission' => $totalCommission,
+                    'target_amount' => $targetAmount,
+                    'achievement_amount' => $achievementAmount,
+                    'recover_amount' => $recoverAmount,
                     'period' => $period,
                     'metrics_found' => ! $metricsNotFound,
                 ],

@@ -41,10 +41,10 @@ class PayrollAdminController extends Controller implements HasMiddleware
     public function pendingRequests()
     {
         try {
-            $requests = PayslipRequest::with(['user', 'payrollRecord'])
-                ->where('status', 'pending')
-                ->orderBy('created_at', 'asc')
-                ->get();
+        $requests = PayslipRequest::with(['user', 'employee.designation', 'employee.department', 'payrollRecord'])
+            ->where('status', 'pending')
+            ->orderBy('created_at', 'asc')
+            ->get();
                 
             \Log::info('Pending payroll requests viewed', [
                 'user_id' => Auth::id(),
@@ -122,12 +122,16 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'performance_allowance' => 0,
                 'incentive' => 0,
                 'position_allowance' => 0,
+                'mobile_payment' => 0,
                 'total_package' => 0,
                 'monthly_target' => 0,
                 'achievement_percentage' => 0,
                 'payment_percentage' => 0,
                 'payment_criteria' => 'No',
                 'calculated_payment' => 0,
+                'commission' => 0,
+                'override_commission' => 0,
+                'total_commission' => 0,
             ];
 
             try {
@@ -140,6 +144,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     $metrics['performance_allowance'] = (float) ($des->performance_allowance ?? 0);
                     $metrics['incentive'] = (float) ($des->incentive ?? 0);
                     $metrics['position_allowance'] = (float) ($des->position_allowance ?? 0);
+                    $metrics['mobile_payment'] = (float) ($des->mobile_payment ?? 0);
                     $metrics['total_package'] = (float) ($des->total_package ?? 0);
                     $metrics['monthly_target'] = (float) ($des->monthly_target ?? 0);
                 }
@@ -150,6 +155,9 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 if ($cdpUser && isset($cdpUser['metrics'])) {
                     $m = $cdpUser['metrics'];
                     $achievement = (float) ($m['achievement_percentage'] ?? $m['performance_percentage'] ?? $m['achievement'] ?? $m['performance'] ?? $m['score'] ?? 0);
+                    $metrics['commission'] = (float) ($m['commission'] ?? 0);
+                    $metrics['override_commission'] = (float) ($m['override_commission'] ?? 0);
+                    $metrics['total_commission'] = (float) ($m['total_commission'] ?? 0);
                 }
                 if ($achievement === null) $achievement = 0;
 
@@ -166,10 +174,15 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     $metrics['payment_criteria'] = '75% Total Package';
                 } else {
                     $metrics['payment_percentage'] = 100;
-                    $metrics['payment_criteria'] = '100% Total Package';
+                    $metrics['payment_criteria'] = '100% Package + Mobile Bonus';
                 }
 
                 $metrics['calculated_payment'] = ($metrics['payment_percentage'] / 100) * $metrics['total_package'];
+
+                // For >90% achievement, add mobile_payment as bonus on top of full package
+                if ($achievement > 90) {
+                    $metrics['calculated_payment'] = $metrics['total_package'] + $metrics['mobile_payment'];
+                }
             } catch (\Throwable $th) {
                 \Log::warning('Failed to fetch metrics for payslip PDF', ['error' => $th->getMessage()]);
             }

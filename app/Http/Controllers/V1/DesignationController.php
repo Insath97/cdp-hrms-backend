@@ -314,6 +314,7 @@ class DesignationController extends Controller implements HasMiddleware
                 'performance_allowance',
                 'incentive',
                 'position_allowance',
+                'mobile_payment',
                 'total_package',
                 'level'
             )

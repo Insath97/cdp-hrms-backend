@@ -21,6 +21,7 @@ class Designation extends Model
         'performance_allowance',
         'incentive',
         'position_allowance',
+        'mobile_payment',
         'total_package',
         'level',
         'description',

@@ -62,6 +62,9 @@
             @if($metrics['position_allowance'] > 0)
             <tr><td class="label">Position Allowance</td><td class="value">LKR {{ number_format($metrics['position_allowance'], 2) }}</td></tr>
             @endif
+            @if(isset($metrics['mobile_payment']) && $metrics['mobile_payment'] > 0)
+            <tr><td class="label">Mobile Payment</td><td class="value">LKR {{ number_format($metrics['mobile_payment'], 2) }}</td></tr>
+            @endif
             <tr class="total-row"><td>Total Package</td><td class="value">LKR {{ number_format($metrics['total_package'], 2) }}</td></tr>
         </table>
     </div>
@@ -70,9 +73,12 @@
         <div class="section-title">Payment Calculation</div>
         <table>
             <tr><td class="label">Achievement</td><td class="value">{{ number_format($metrics['achievement_percentage'], 2) }}%</td></tr>
-            <tr><td class="label">Payment Rate</td><td class="value">{{ $metrics['payment_percentage'] }}%</td></tr>
-            <tr><td class="label">Payment Criteria</td><td class="value">{{ $metrics['payment_criteria'] }}</td></tr>
-            <tr class="total-row"><td>Calculated Payment</td><td class="value">LKR {{ number_format($metrics['calculated_payment'], 2) }}</td></tr>
+            <tr><td class="label">Payment Rate</td><td class="value">{{ $metrics['payment_percentage'] }}% ({{ $metrics['payment_criteria'] }})</td></tr>
+            <tr><td class="label">Calculated Payment</td><td class="value">LKR {{ number_format($metrics['calculated_payment'], 2) }}</td></tr>
+            @if(isset($metrics['total_commission']) && $metrics['total_commission'] > 0)
+            <tr><td class="label">Commission</td><td class="value">+ LKR {{ number_format($metrics['total_commission'], 2) }}</td></tr>
+            @endif
+            <tr class="total-row"><td>Full Payment</td><td class="value">LKR {{ number_format($metrics['calculated_payment'] + ($metrics['total_commission'] ?? 0), 2) }}</td></tr>
         </table>
     </div>
     @endif

@@ -186,7 +186,8 @@ class EmployeeController extends Controller implements HasMiddleware
                 'can_login' => true,
             ]);
 
-              $user->assignRole($data['role']);
+              $roleModel = \Spatie\Permission\Models\Role::find($data['role']);
+              $user->assignRole($roleModel ? $roleModel->name : ($data['role'] ?? 'Staff'));
               
             // Send welcome email with credentials
             try {
