@@ -36,7 +36,8 @@ class EmployeeController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = Employee::with(['department', 'designation', 'branch', 'reportingManager', 'zonal', 'region', 'province']);
+            // $query = Employee::with(['department', 'designation', 'branch', 'reportingManager', 'zonal', 'region', 'province']);
+            $query = Employee::withTrashed()->with(['department', 'designation', 'branch', 'reportingManager', 'zonal', 'region', 'province']);
 
             if ($request->has('search')) {
                 $query->search($request->search);
@@ -71,8 +72,15 @@ class EmployeeController extends Controller implements HasMiddleware
                 }
             }
 
+            $trashed = Employee::onlyTrashed()
+                ->get(['id', 'employee_code', 'full_name', 'deleted_at'])
+                ->toArray();
+
             Log::info('Employees index accessed', [
                 'user_id' => Auth::id(),
+                'with_trashed' => true,
+                'trashed_count' => count($trashed),
+                'trashed_employees' => $trashed,
                 'filters' => $request->only(['search', 'department_id', 'designation_id', 'branch_id', 'is_active', 'employment_status', 'per_page']),
                 'count' => $employees->count(),
             ]);
@@ -188,7 +196,7 @@ class EmployeeController extends Controller implements HasMiddleware
 
               $roleModel = \Spatie\Permission\Models\Role::find($data['role']);
               $user->assignRole($roleModel ? $roleModel->name : ($data['role'] ?? 'Staff'));
-              
+
             // Send welcome email with credentials
             try {
                 if (!empty($user->email)) {

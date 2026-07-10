@@ -21,13 +21,23 @@ class UpdateUserRequest extends FormRequest
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
      */
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('email')) {
+            $val = $this->email;
+            if ($val === null || $val === '' || $val === 'null') {
+                $this->merge(['email' => null]);
+            }
+        }
+    }
+
     public function rules(): array
     {
         $id = $this->route('user');
         return [
             'name' => 'sometimes|string|max:255',
             'username' => 'sometimes|string|max:255|unique:users,username,' . $id,
-            'email' => 'sometimes|email|max:255|unique:users,email,' . $id,
+            'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $id,
             'password' => 'sometimes|string|min:8',
             'user_type' => 'sometimes|in:admin,staff',
             'role' => 'sometimes|string|exists:roles,name',

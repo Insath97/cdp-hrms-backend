@@ -148,21 +148,23 @@ class UserController extends Controller implements HasMiddleware
             $user->assignRole($data['role']);
 
 
-            // Send Welcome Email
-            try {
-                $emailData = [
-                    'user' => $user->toArray(),
-                    'password' => $rawPassword,
-                    'role' => $data['role'] ?? null,
-                    'created_by' => $currentUser ? $currentUser->name : 'System',
-                    'login_url' => config('app.frontend_url') ?? config('app.url'),
-                ];
+            // Send Welcome Email (only if user has an email)
+            if ($user->email) {
+                try {
+                    $emailData = [
+                        'user' => $user->toArray(),
+                        'password' => $rawPassword,
+                        'role' => $data['role'] ?? null,
+                        'created_by' => $currentUser ? $currentUser->name : 'System',
+                        'login_url' => config('app.frontend_url') ?? config('app.url'),
+                    ];
 
-                Mail::to($user->email)->send(new UserCreateMail($emailData));
+                    Mail::to($user->email)->send(new UserCreateMail($emailData));
 
-                Log::info('User creation email sent', ['user_id' => $user->id]);
-            } catch (\Throwable $th) {
-                Log::error('Failed to send user creation email: ' . $th->getMessage());
+                    Log::info('User creation email sent', ['user_id' => $user->id]);
+                } catch (\Throwable $th) {
+                    Log::error('Failed to send user creation email: ' . $th->getMessage());
+                }
             }
 
             $user->load([
