@@ -117,6 +117,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('report/weekly', [AttendanceController::class, 'weeklyReport']);
         Route::get('report/monthly', [AttendanceController::class, 'monthlyReport']);
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
+        Route::delete('delete/{id}', [AttendanceController::class, 'destroy']);
         Route::post('process-rules', [AttendanceController::class, 'processRules']);
         Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
 
