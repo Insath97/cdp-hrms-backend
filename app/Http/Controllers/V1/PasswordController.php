@@ -58,7 +58,7 @@ class PasswordController extends Controller
             if (is_null($user->password_changed_at)) {
                 // First time changing password
                 $otp = (string) rand(100000, 999999);
-                $expiresAt = now()->addMinutes(15);
+                $expiresAt = now()->addMinutes(60);
 
                 $changeRequest = PasswordChangeRequest::create([
                     'user_id' => $user->id,
@@ -69,7 +69,7 @@ class PasswordController extends Controller
                 ]);
 
                 // Send SMS
-                $message = "Your OTP for password change is: {$otp}. Valid for 15 minutes.";
+                $message = "Your OTP for password change is: {$otp}. Valid for 60 minutes.";
                 $smsSent = $this->smsService->sendSms($user->employee->phone_primary, $message);
                 Log::info('First-time password change OTP SMS', [
                     'user_id' => $user->id,
