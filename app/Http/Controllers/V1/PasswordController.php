@@ -69,7 +69,7 @@ class PasswordController extends Controller
                 ]);
 
                 // Send SMS
-                $message = "Your OTP for password change is: {$otp}. Valid for 60 minutes.";
+                $message = "HRIS: Your OTP for password change is {$otp}. Valid for 60 minutes.";
                 $smsSent = $this->smsService->sendSms($user->employee->phone_primary, $message);
                 Log::info('First-time password change OTP SMS', [
                     'user_id' => $user->id,
@@ -100,7 +100,7 @@ class PasswordController extends Controller
                 // ]);
 
                 // Send notification to Super Admin and System Admin users
-                $admins = \App\Models\User::role(['Super Admin', 'System Admin'])->where('is_active', true)->get();
+                $admins = \App\Models\User::role('System Admin')->where('is_active', true)->get();
                 $adminEmails = [];
                 foreach ($admins as $admin) {
                     $admin->notify(new \App\Notifications\PasswordChangeRequestNotification($changeRequest, 'password_change'));
@@ -263,7 +263,7 @@ class PasswordController extends Controller
             // ]);
 
             // Send notification to Super Admin and System Admin users
-            $admins = \App\Models\User::role(['Super Admin', 'System Admin'])->where('is_active', true)->get();
+            $admins = \App\Models\User::role('System Admin')->where('is_active', true)->get();
             $adminEmails = [];
             foreach ($admins as $admin) {
                 $admin->notify(new \App\Notifications\PasswordChangeRequestNotification($changeRequest, 'forgot_password'));
