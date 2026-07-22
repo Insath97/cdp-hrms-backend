@@ -60,6 +60,8 @@ class CreateEmployeeRequest extends FormRequest
             'user_type' => 'sometimes|in:admin,staff',
             'role' => 'sometimes|string|max:255',
             'is_active' => 'sometimes|boolean',
+            'geofence_ids' => 'sometimes|array',
+            'geofence_ids.*' => 'exists:geofences,id',
         ];
     }
 

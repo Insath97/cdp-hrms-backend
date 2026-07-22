@@ -63,6 +63,10 @@ class EmployeeController extends Controller implements HasMiddleware
                 $query->where('employment_status', $request->employment_status);
             }
 
+            if ($request->has('employee_type')) {
+                $query->where('employee_type', $request->employee_type);
+            }
+
             $employees = $query->paginate($perPage);
 
             $employeesArray = $employees->toArray();
@@ -81,7 +85,7 @@ class EmployeeController extends Controller implements HasMiddleware
                 'with_trashed' => true,
                 'trashed_count' => count($trashed),
                 'trashed_employees' => $trashed,
-                'filters' => $request->only(['search', 'department_id', 'designation_id', 'branch_id', 'is_active', 'employment_status', 'per_page']),
+                'filters' => $request->only(['search', 'department_id', 'designation_id', 'branch_id', 'is_active', 'employment_status', 'employee_type', 'per_page']),
                 'count' => $employees->count(),
             ]);
 
@@ -158,6 +162,10 @@ class EmployeeController extends Controller implements HasMiddleware
         if ($request->hasFile('profile_image')) {
             $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', null, 'employees', $data['employee_code'].'_profile');
         }
+
+        // Extract non-employee fields before creating the employee
+        $geofenceIds = $data['geofence_ids'] ?? [];
+        unset($data['geofence_ids']);
 
         // Create the employee first
         $employee = Employee::create($data);
@@ -237,6 +245,16 @@ class EmployeeController extends Controller implements HasMiddleware
             // Rollback employee creation if user creation fails
             $employee->delete();
             throw $userError;
+        }
+
+        // Assign geofences to the user
+        if (!empty($geofenceIds)) {
+            foreach ($geofenceIds as $gid) {
+                \App\Models\UserAllowedLocation::firstOrCreate([
+                    'user_id' => $user->id,
+                    'geofence_id' => $gid,
+                ]);
+            }
         }
 
         Log::info('Employee created with user account', [

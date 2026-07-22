@@ -10,7 +10,7 @@ use App\Models\User;
 use App\Services\CdpConnectService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -34,7 +34,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             new Middleware('permission:Payroll Process', only: ['processPayroll']),
         ];
     }
-    
+
     /**
      * Get all pending payslip requests
      */
@@ -45,31 +45,31 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ->where('status', 'pending')
             ->orderBy('created_at', 'asc')
             ->get();
-                
+
             \Log::info('Pending payroll requests viewed', [
                 'user_id' => Auth::id(),
                 'count' => $requests->count()
             ]);
-                
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Pending requests retrieved successfully',
                 'data' => $requests
             ]);
-            
+
         } catch (\Throwable $th) {
             \Log::error('Failed to retrieve pending requests', [
                 'user_id' => Auth::id(),
                 'error' => $th->getMessage()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve pending requests: ' . $th->getMessage()
             ], 500);
         }
     }
-    
+
     /**
      * Approve a payslip request with e-signature
      */
@@ -79,11 +79,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
             $request->validate([
                 'signature_data' => 'required|string'
             ]);
-            
+
             $payslipRequest = PayslipRequest::with(['user', 'payrollRecord'])->findOrFail($requestId);
-            
+
             DB::beginTransaction();
-            
+
             // Generate signed payslip with e-signature
             $payrollRecord = $payslipRequest->payrollRecord;
             $user = $payslipRequest->user;
@@ -197,24 +197,22 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'period_label' => $period_label,
                 'metrics' => $metrics,
             ];
-            
+
             // Generate PDF
             $pdf = Pdf::loadView('pdf.payslip', $data);
-            
-            // Create directory if it doesn't exist
-            $directory = storage_path('app/public/payslips');
-            if (!file_exists($directory)) {
-                mkdir($directory, 0755, true);
+
+            // Save PDF to public/uploads/payslips (same pattern as FileUploadTrait)
+            $directory = 'uploads/payslips';
+            if (!File::exists(public_path($directory))) {
+                File::makeDirectory(public_path($directory), 0755, true);
             }
-            
-            // Save PDF file - clean the month string to remove spaces
+
             $cleanMonth = str_replace(' ', '_', $period_label);
             $fileName = "signed_{$user->id}_{$payslipRequest->period}_{$cleanMonth}.pdf";
-            $filePath = "payslips/" . $fileName;
-            
-            // Save the PDF using Storage facade
-            Storage::disk('public')->put($filePath, $pdf->output());
-            
+            $filePath = "{$directory}/{$fileName}";
+
+            File::put(public_path($filePath), $pdf->output());
+
             // Update request with file path
             $payslipRequest->update([
                 'status' => 'approved',
@@ -223,11 +221,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'approved_at' => now(),
                 'signed_file_path' => $filePath
             ]);
-            
+
             DB::commit();
 
             $this->logActivity('APPROVE', 'Payroll', "Approved payslip request (ID: {$payslipRequest->id}) for month {$period_label}");
-            
+
             \Log::info('Payslip request approved', [
                 'user_id' => Auth::id(),
                 'request_id' => $payslipRequest->id,
@@ -235,13 +233,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'month' => $period_label,
                 'file_path' => $filePath
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payslip request approved and signed successfully',
                 'data' => $payslipRequest
             ]);
-            
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => 'error',
@@ -250,21 +248,21 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             \Log::error('Failed to approve payslip request', [
                 'user_id' => Auth::id(),
                 'request_id' => $requestId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to approve request: ' . $e->getMessage()
             ], 500);
         }
     }
-    
+
     /**
      * Reject a payslip request
      */
@@ -274,28 +272,28 @@ class PayrollAdminController extends Controller implements HasMiddleware
             $request->validate([
                 'rejection_reason' => 'required|string|max:500'
             ]);
-            
+
             $payslipRequest = PayslipRequest::findOrFail($requestId);
-            
+
             $payslipRequest->update([
                 'status' => 'rejected',
                 'rejection_reason' => $request->rejection_reason
             ]);
 
             $this->logActivity('REJECT', 'Payroll', "Rejected payslip request (ID: {$payslipRequest->id}). Reason: {$request->rejection_reason}", $request->only(['rejection_reason']));
-            
+
             \Log::info('Payslip request rejected', [
                 'user_id' => Auth::id(),
                 'request_id' => $payslipRequest->id,
                 'reason' => $request->rejection_reason
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payslip request rejected successfully',
                 'data' => $payslipRequest
             ]);
-            
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => 'error',
@@ -308,14 +306,14 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'request_id' => $requestId,
                 'error' => $e->getMessage()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to reject request: ' . $e->getMessage()
             ], 500);
         }
     }
-    
+
     /**
      * Get all payroll records (admin view)
      */
@@ -324,19 +322,19 @@ class PayrollAdminController extends Controller implements HasMiddleware
         try {
             $perPage = $request->get('per_page', 15);
             $query = PayrollRecord::with(['user', 'latestRequest']);
-            
+
             if ($request->has('month')) {
                 $query->where('month', $request->month);
             }
-            
+
             if ($request->has('status')) {
                 $query->where('status', $request->status);
             }
-            
+
             if ($request->has('user_id')) {
                 $query->where('user_id', $request->user_id);
             }
-            
+
             if ($request->has('search')) {
                 $search = $request->search;
                 $query->whereHas('user', function($q) use ($search) {
@@ -345,28 +343,28 @@ class PayrollAdminController extends Controller implements HasMiddleware
                       ->orWhere('employee_id', 'like', '%' . $search . '%');
                 });
             }
-            
+
             $payrolls = $query->orderBy('month', 'desc')->paginate($perPage);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payroll records retrieved successfully',
                 'data' => $payrolls
             ]);
-            
+
         } catch (\Exception $e) {
             \Log::error('Failed to retrieve all payrolls', [
                 'user_id' => Auth::id(),
                 'error' => $e->getMessage()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve payroll records: ' . $e->getMessage()
             ], 500);
         }
     }
-    
+
     /**
      * Get single payroll record details
      */
@@ -374,13 +372,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
     {
         try {
             $payroll = PayrollRecord::with(['user', 'payslipRequests.approver'])->findOrFail($id);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payroll details retrieved successfully',
                 'data' => $payroll
             ]);
-            
+
         } catch (\Exception $e) {
             return response()->json([
                 'status' => 'error',
@@ -388,7 +386,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ], 404);
         }
     }
-    
+
     /**
      * Update payroll record
      */
@@ -401,44 +399,44 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'deductions' => 'nullable|numeric|min:0',
                 'status' => 'nullable|in:draft,pending,processed'
             ]);
-            
+
             $payroll = PayrollRecord::findOrFail($id);
-            
+
             $updateData = [];
             if ($request->has('basic')) $updateData['basic'] = $request->basic;
             if ($request->has('allowances')) $updateData['allowances'] = $request->allowances;
             if ($request->has('deductions')) $updateData['deductions'] = $request->deductions;
             if ($request->has('status')) $updateData['status'] = $request->status;
-            
+
             // Recalculate net and EPF if earnings changed
             if (isset($updateData['basic']) || isset($updateData['allowances']) || isset($updateData['deductions'])) {
                 $basic = $updateData['basic'] ?? $payroll->basic;
                 $allowances = $updateData['allowances'] ?? $payroll->allowances;
                 $deductions = $updateData['deductions'] ?? $payroll->deductions;
                 $gross = $basic + $allowances;
-                
+
                 $updateData['epf_employee'] = $gross * 0.08;
                 $updateData['epf_employer'] = $gross * 0.12;
                 $updateData['etf_employer'] = $gross * 0.03;
                 $updateData['net'] = $gross - $updateData['epf_employee'] - $deductions;
             }
-            
+
             $payroll->update($updateData);
 
             $this->logActivity('UPDATE', 'Payroll', "Updated payroll record (ID: {$payroll->id}) for month {$payroll->month}", $updateData);
-            
+
             \Log::info('Payroll record updated', [
                 'user_id' => Auth::id(),
                 'payroll_id' => $payroll->id,
                 'updated_fields' => array_keys($updateData)
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payroll record updated successfully',
                 'data' => $payroll
             ]);
-            
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => 'error',
@@ -452,7 +450,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ], 500);
         }
     }
-    
+
     /**
      * Process payroll (change status from draft to processed)
      */
@@ -460,27 +458,27 @@ class PayrollAdminController extends Controller implements HasMiddleware
     {
         try {
             $payroll = PayrollRecord::findOrFail($id);
-            
+
             $payroll->update([
                 'status' => 'processed',
                 'processed_at' => now()
             ]);
 
             $this->logActivity('PROCESS', 'Payroll', "Processed payroll record (ID: {$payroll->id}) for month {$payroll->month}");
-            
+
             \Log::info('Payroll processed', [
                 'user_id' => Auth::id(),
                 'payroll_id' => $payroll->id,
                 'employee_id' => $payroll->user_id,
                 'month' => $payroll->month
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payroll processed successfully',
                 'data' => $payroll
             ]);
-            
+
         } catch (\Exception $e) {
             return response()->json([
                 'status' => 'error',
@@ -488,7 +486,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ], 500);
         }
     }
-    
+
     /**
      * Bulk generate payroll for multiple employees
      */
@@ -500,14 +498,14 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'user_ids' => 'required|array',
                 'user_ids.*' => 'exists:users,id'
             ]);
-            
+
             $generated = [];
             $errors = [];
-            
+
             foreach ($request->user_ids as $userId) {
                 try {
                     $user = User::find($userId);
-                    
+
                     // Calculate salary components (adjust based on your business logic)
                     $basic = $user->basic_salary ?? 0;
                     $allowances = $this->calculateAllowances($user);
@@ -517,7 +515,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     $epfEmployer = $gross * 0.12;
                     $etfEmployer = $gross * 0.03;
                     $net = $gross - $epfEmployee - $deductions;
-                    
+
                     $payroll = PayrollRecord::updateOrCreate(
                         [
                             'user_id' => $userId,
@@ -534,9 +532,9 @@ class PayrollAdminController extends Controller implements HasMiddleware
                             'status' => 'draft'
                         ]
                     );
-                    
+
                     $generated[] = $payroll;
-                    
+
                 } catch (\Exception $e) {
                     $errors[] = [
                         'user_id' => $userId,
@@ -546,14 +544,14 @@ class PayrollAdminController extends Controller implements HasMiddleware
             }
 
             $this->logActivity('GENERATE', 'Payroll', "Generated bulk payroll records for month {$request->month}", $request->all());
-            
+
             \Log::info('Bulk payroll generated', [
                 'user_id' => Auth::id(),
                 'month' => $request->month,
                 'generated_count' => count($generated),
                 'error_count' => count($errors)
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payroll generated successfully',
@@ -564,7 +562,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     'failed' => count($errors)
                 ]
             ]);
-            
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => 'error',
@@ -578,7 +576,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ], 500);
         }
     }
-    
+
     /**
      * Calculate allowances for an employee
      * Override this method based on your business rules
@@ -586,23 +584,23 @@ class PayrollAdminController extends Controller implements HasMiddleware
     private function calculateAllowances($user)
     {
         $allowances = 0;
-        
+
         // Example: Transport allowance
         if (isset($user->transport_allowance) && $user->transport_allowance) {
             $allowances += 5000;
         }
-        
+
         // Example: Meal allowance
         if (isset($user->meal_allowance) && $user->meal_allowance) {
             $allowances += 3000;
         }
-        
+
         // Default allowance
         $allowances += 15000;
-        
+
         return $allowances;
     }
-    
+
     /**
      * Calculate deductions for an employee
      * Override this method based on your business rules
@@ -610,12 +608,12 @@ class PayrollAdminController extends Controller implements HasMiddleware
     private function calculateDeductions($user)
     {
         $deductions = 0;
-        
+
         // Example: Loan deductions
         if (isset($user->loan_deduction) && $user->loan_deduction > 0) {
             $deductions += $user->loan_deduction;
         }
-        
+
         return $deductions;
     }
 }
