@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 
@@ -100,6 +101,11 @@ class Employee extends Model
     // }
 
     // Relationships
+    public function user(): HasOne
+    {
+        return $this->hasOne(User::class);
+    }
+
     public function reportingManager(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'reporting_manager_id');
@@ -138,6 +144,21 @@ class Employee extends Model
     public function designation(): BelongsTo
     {
         return $this->belongsTo(Designation::class);
+    }
+
+    public function salaryDetail(): HasOne
+    {
+        return $this->hasOne(EmployeeSalaryDetail::class);
+    }
+
+    public function loans(): HasMany
+    {
+        return $this->hasMany(Loan::class);
+    }
+
+    public function activeLoans(): HasMany
+    {
+        return $this->hasMany(Loan::class)->where('status', 'active');
     }
 
     // Scopes

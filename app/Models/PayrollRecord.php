@@ -37,4 +37,14 @@ class PayrollRecord extends Model
     {
         return $this->hasOne(PayslipRequest::class)->latest();
     }
+
+    public function detail()
+    {
+        return $this->hasOne(PayrollDetail::class);
+    }
+
+    public function deductions()
+    {
+        return $this->hasMany(PayrollDeduction::class);
+    }
 }

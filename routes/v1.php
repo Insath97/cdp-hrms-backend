@@ -32,6 +32,9 @@ use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
 use App\Http\Controllers\V1\Admin\AbsentMarkingController;
 use App\Http\Controllers\V1\GeofenceController;
 use App\Http\Controllers\V1\UserAllowedLocationController;
+use App\Http\Controllers\V1\LoanController;
+use App\Http\Controllers\V1\EmployeeSalaryController;
+use App\Http\Controllers\V1\PayrollDeductionController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -222,6 +225,14 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // HR Admin routes
     Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
         Route::get('/payroll', [PayrollAdminController::class, 'getAllPayrolls']);
+
+        Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
+
+        // Payroll Deductions (must be before {id} routes to avoid conflicts)
+        Route::get('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'index']);
+        Route::post('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'store']);
+        Route::delete('/payroll/{payrollRecordId}/deductions/{deductionId}', [PayrollDeductionController::class, 'destroy']);
+
         Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
         Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
         Route::post('/payroll/{id}/process', [PayrollAdminController::class, 'processPayroll']);
@@ -229,9 +240,6 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
         Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
         Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
-
-
-        Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
 
         Route::get('/password-change-requests', [PasswordChangeRequestController::class, 'index']);
         Route::post('/password-change-requests/{id}/approve', [PasswordChangeRequestController::class, 'approve']);
@@ -263,4 +271,13 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
         Route::delete('/{id}', [NotificationController::class, 'destroy']);
     });
+
+    // Loans
+    Route::apiResource('loans', LoanController::class);
+    Route::get('loans/employee/{employeeId}', [LoanController::class, 'getByEmployee']);
+
+    // Employee Salary Details
+    Route::get('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'show']);
+    Route::put('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'upsert']);
+    Route::delete('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'destroy']);
 });

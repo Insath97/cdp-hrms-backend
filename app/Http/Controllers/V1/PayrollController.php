@@ -395,7 +395,7 @@ class PayrollController extends Controller implements HasMiddleware
                 ], 400);
             }
 
-            $employee = Employee::with('designation')->find($employeeId);
+            $employee = Employee::with(['designation', 'salaryDetail'])->find($employeeId);
 
             if (! $employee) {
                 return response()->json([
@@ -405,7 +405,17 @@ class PayrollController extends Controller implements HasMiddleware
             }
 
             $designation = $employee->designation;
-            $totalPackage = $designation ? (float) ($designation->total_package ?? 0) : 0.0;
+            $salaryOverride = $employee->salaryDetail;
+
+            // Use employee salary override if present, otherwise fall back to designation
+            $getSalaryField = function ($field) use ($salaryOverride, $designation) {
+                if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
+                    return (float) $salaryOverride->{$field};
+                }
+                return $designation ? (float) ($designation->{$field} ?? 0) : 0.0;
+            };
+
+            $totalPackage = $getSalaryField('total_package');
 
             // Fetch metrics from external API service
             $period = $request->get('period_key', now()->format('Y-m'));
@@ -466,16 +476,17 @@ class PayrollController extends Controller implements HasMiddleware
             }
 
             // Boundary logic:
-            // Below 50% -> No (0%)
+            // Below 50% -> No (0%), except permanent staff get basic_salary floor
             // 50% - 65% -> 50% Total Package
             // >65% - 90% -> 75% Total Package
             // Over 90% -> 100% Total Package + Mobile Payment
             $paymentPercentage = 0;
             $paymentCriteria = 'No';
+            $isPermanent = ($employee->employee_type === 'permanent');
 
             if ($achievement < 50) {
                 $paymentPercentage = 0;
-                $paymentCriteria = 'No';
+                $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
             } elseif ($achievement >= 50 && $achievement <= 65) {
                 $paymentPercentage = 50;
                 $paymentCriteria = '50% Total Package';
@@ -489,21 +500,26 @@ class PayrollController extends Controller implements HasMiddleware
 
             $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
 
+            // Permanent staff always receive basic salary floor even when <50% achievement
+            $basicSalary = $getSalaryField('basic_salary');
+            if ($achievement < 50 && $isPermanent) {
+                $calculatedPayment = $basicSalary;
+            }
+
             // For >90% achievement, add mobile_payment as bonus on top of full package
             $mobilePaymentBonus = 0.0;
             if ($achievement > 90) {
                 $calculatedPayment = $totalPackage;
-                $mobilePaymentBonus = $designation ? (float) ($designation->mobile_payment ?? 0) : 0.0;
+                $mobilePaymentBonus = $getSalaryField('mobile_payment');
             }
 
-            $monthlyTarget = $designation ? (float) ($designation->monthly_target ?? 0) : 0.0;
-            $basicSalary = $designation ? (float) ($designation->basic_salary ?? 0) : 0.0;
-            $travelReimbursement = $designation ? (float) ($designation->travel_reimbursement ?? 0) : 0.0;
-            $vehicleAllowance = $designation ? (float) ($designation->vehicle_rental ?? 0) : 0.0;
-            $performanceAllowance = $designation ? (float) ($designation->performance_allowance ?? 0) : 0.0;
-            $incentive = $designation ? (float) ($designation->incentive ?? 0) : 0.0;
-            $positionAllowance = $designation ? (float) ($designation->position_allowance ?? 0) : 0.0;
-            $mobilePayment = $designation ? (float) ($designation->mobile_payment ?? 0) : 0.0;
+            $monthlyTarget = $getSalaryField('monthly_target');
+            $travelReimbursement = $getSalaryField('travel_reimbursement');
+            $vehicleAllowance = $getSalaryField('vehicle_rental');
+            $performanceAllowance = $getSalaryField('performance_allowance');
+            $incentive = $getSalaryField('incentive');
+            $positionAllowance = $getSalaryField('position_allowance');
+            $mobilePayment = $getSalaryField('mobile_payment');
             $howMuchPaid = $calculatedPayment + $mobilePaymentBonus;
             return response()->json([
                 'status' => 'success',

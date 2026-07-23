@@ -37,7 +37,7 @@ class EmployeeController extends Controller implements HasMiddleware
         try {
             $perPage = $request->get('per_page', 15);
             // $query = Employee::with(['department', 'designation', 'branch', 'reportingManager', 'zonal', 'region', 'province']);
-            $query = Employee::withTrashed()->with(['department', 'designation', 'branch', 'reportingManager', 'zonal', 'region', 'province']);
+            $query = Employee::withTrashed()->with(['department', 'designation', 'branch', 'reportingManager', 'zonal', 'region', 'province', 'user.roles', 'user.allowedLocations.geofence']);
 
             if ($request->has('search')) {
                 $query->search($request->search);
@@ -249,12 +249,15 @@ class EmployeeController extends Controller implements HasMiddleware
 
         // Assign geofences to the user
         if (!empty($geofenceIds)) {
+            $pivotData = [];
             foreach ($geofenceIds as $gid) {
                 \App\Models\UserAllowedLocation::firstOrCreate([
                     'user_id' => $user->id,
                     'geofence_id' => $gid,
                 ]);
+                $pivotData[$gid] = ['employee_id' => $employee->id];
             }
+            $user->geofences()->syncWithoutDetaching($pivotData);
         }
 
         Log::info('Employee created with user account', [
@@ -301,6 +304,8 @@ class EmployeeController extends Controller implements HasMiddleware
                 'province',
                 'reportingManager',
                 'subordinates',
+                'user.roles',
+                'user.allowedLocations.geofence',
             ])->find($id);
 
             if (! $employee) {
@@ -348,12 +353,51 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $data = $request->validated();
 
+            // Extract user and geofence fields before updating employee
+            $geofenceIds = $data['geofence_ids'] ?? null;
+            $userType = $data['user_type'] ?? null;
+            $role = $data['role'] ?? null;
+            $username = $data['username'] ?? null;
+            unset($data['geofence_ids'], $data['user_type'], $data['role'], $data['username']);
+
             // Handle profile image upload
             if ($request->hasFile('profile_image')) {
                 $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', $employee->profile_image, 'employees', $employee->employee_code.'_profile');
             }
 
             $employee->update($data);
+
+            // Update associated user account & allowed geofences
+            $user = \App\Models\User::where('employee_id', $employee->id)->first();
+            if ($user) {
+                if ($userType !== null) {
+                    $user->user_type = $userType;
+                }
+                if ($username !== null && !empty($username)) {
+                    $user->username = $username;
+                }
+                $user->save();
+
+                if ($role !== null && !empty($role)) {
+                    $roleModel = \Spatie\Permission\Models\Role::find($role);
+                    $user->syncRoles([$roleModel ? $roleModel->name : $role]);
+                }
+
+                if (is_array($geofenceIds)) {
+                    \App\Models\UserAllowedLocation::where('user_id', $user->id)->delete();
+                    $cleanGids = array_values(array_filter($geofenceIds, fn($id) => !empty($id)));
+                    $pivotData = [];
+                    foreach ($cleanGids as $gid) {
+                        \App\Models\UserAllowedLocation::create([
+                            'user_id' => $user->id,
+                            'geofence_id' => $gid,
+                            'is_active' => true,
+                        ]);
+                        $pivotData[$gid] = ['employee_id' => $employee->id];
+                    }
+                    $user->geofences()->sync($pivotData);
+                }
+            }
 
             $this->logActivity('UPDATE', 'Employee', "Updated employee: {$employee->full_name}", $data);
 

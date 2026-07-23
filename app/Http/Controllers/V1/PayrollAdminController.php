@@ -46,6 +46,87 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ->orderBy('created_at', 'asc')
             ->get();
 
+            $cdpService = app(CdpConnectService::class);
+
+            $requests->each(function ($payslipRequest) use ($cdpService) {
+                $employee = $payslipRequest->employee;
+                $period = $payslipRequest->period ?? now()->format('Y-m');
+
+                $metrics = [
+                    'achievement_percentage' => 0,
+                    'payment_percentage' => 0,
+                    'payment_criteria' => 'No',
+                    'calculated_payment' => 0,
+                ];
+
+                if ($employee && $employee->employee_code) {
+                    try {
+                        $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
+                        if ($cdpUser && isset($cdpUser['metrics'])) {
+                            $m = $cdpUser['metrics'];
+                            $achievement = (float) ($m['achievement_percentage'] ?? $m['performance_percentage'] ?? $m['achievement'] ?? $m['performance'] ?? $m['score'] ?? 0);
+
+                            $salaryOverride = $employee->salaryDetail;
+                            $getSalaryField = function ($field) use ($salaryOverride, $employee) {
+                                if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
+                                    return (float) $salaryOverride->{$field};
+                                }
+                                $designation = $employee->designation;
+                                return $designation ? (float) ($designation->{$field} ?? 0) : 0.0;
+                            };
+
+                            $totalPackage = $getSalaryField('total_package');
+                            $mobilePayment = $getSalaryField('mobile_payment');
+                            $basicSalary = $getSalaryField('basic_salary');
+
+                            $paymentPercentage = 0;
+                            $paymentCriteria = 'No';
+                            $isPermanent = ($employee->employee_type === 'permanent');
+
+                            if ($achievement < 50) {
+                                $paymentPercentage = 0;
+                                $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
+                            } elseif ($achievement >= 50 && $achievement <= 65) {
+                                $paymentPercentage = 50;
+                                $paymentCriteria = '50% Total Package';
+                            } elseif ($achievement > 65 && $achievement <= 90) {
+                                $paymentPercentage = 75;
+                                $paymentCriteria = '75% Total Package';
+                            } else {
+                                $paymentPercentage = 100;
+                                $paymentCriteria = '100% Package + Mobile Bonus';
+                            }
+
+                            $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
+
+                            // Permanent staff always receive basic salary floor even when <50% achievement
+                            if ($achievement < 50 && $isPermanent) {
+                                $calculatedPayment = $basicSalary;
+                            }
+
+                            if ($achievement > 90) {
+                                $calculatedPayment = $totalPackage + $mobilePayment;
+                            }
+
+                            $metrics = [
+                                'achievement_percentage' => $achievement,
+                                'payment_percentage' => $paymentPercentage,
+                                'payment_criteria' => $paymentCriteria,
+                                'calculated_payment' => $calculatedPayment,
+                                'total_package' => $totalPackage,
+                            ];
+                        }
+                    } catch (\Throwable $th) {
+                        \Log::warning('Failed to fetch metrics for pending request', [
+                            'employee_id' => $employee?->id,
+                            'error' => $th->getMessage(),
+                        ]);
+                    }
+                }
+
+                $payslipRequest->metrics = $metrics;
+            });
+
             \Log::info('Pending payroll requests viewed', [
                 'user_id' => Auth::id(),
                 'count' => $requests->count()
@@ -135,18 +216,28 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ];
 
             try {
-                $employee = Employee::with('designation')->find($user->employee_id);
+                $employee = Employee::with(['designation', 'salaryDetail'])->find($user->employee_id);
+                $salaryOverride = $employee?->salaryDetail;
+
+                // Use employee salary override if present, otherwise fall back to designation
+                $getSalaryField = function ($field) use ($salaryOverride, $employee) {
+                    if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
+                        return (float) $salaryOverride->{$field};
+                    }
+                    $designation = $employee?->designation;
+                    return $designation ? (float) ($designation->{$field} ?? 0) : 0.0;
+                };
+
                 if ($employee && $employee->designation) {
-                    $des = $employee->designation;
-                    $metrics['basic_salary'] = (float) ($des->basic_salary ?? 0);
-                    $metrics['vehicle_allowance'] = (float) ($des->vehicle_rental ?? 0);
-                    $metrics['travel_reimbursement'] = (float) ($des->travel_reimbursement ?? 0);
-                    $metrics['performance_allowance'] = (float) ($des->performance_allowance ?? 0);
-                    $metrics['incentive'] = (float) ($des->incentive ?? 0);
-                    $metrics['position_allowance'] = (float) ($des->position_allowance ?? 0);
-                    $metrics['mobile_payment'] = (float) ($des->mobile_payment ?? 0);
-                    $metrics['total_package'] = (float) ($des->total_package ?? 0);
-                    $metrics['monthly_target'] = (float) ($des->monthly_target ?? 0);
+                    $metrics['basic_salary'] = $getSalaryField('basic_salary');
+                    $metrics['vehicle_allowance'] = $getSalaryField('vehicle_rental');
+                    $metrics['travel_reimbursement'] = $getSalaryField('travel_reimbursement');
+                    $metrics['performance_allowance'] = $getSalaryField('performance_allowance');
+                    $metrics['incentive'] = $getSalaryField('incentive');
+                    $metrics['position_allowance'] = $getSalaryField('position_allowance');
+                    $metrics['mobile_payment'] = $getSalaryField('mobile_payment');
+                    $metrics['total_package'] = $getSalaryField('total_package');
+                    $metrics['monthly_target'] = $getSalaryField('monthly_target');
                 }
 
                 $cdpService = app(CdpConnectService::class);
@@ -163,9 +254,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
 
                 $metrics['achievement_percentage'] = $achievement;
 
+                $isPermanent = ($employee && $employee->employee_type === 'permanent');
+
                 if ($achievement < 50) {
                     $metrics['payment_percentage'] = 0;
-                    $metrics['payment_criteria'] = 'No';
+                    $metrics['payment_criteria'] = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
                 } elseif ($achievement >= 50 && $achievement <= 65) {
                     $metrics['payment_percentage'] = 50;
                     $metrics['payment_criteria'] = '50% Total Package';
@@ -178,6 +271,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 }
 
                 $metrics['calculated_payment'] = ($metrics['payment_percentage'] / 100) * $metrics['total_package'];
+
+                // Permanent staff always receive basic salary floor even when <50% achievement
+                if ($achievement < 50 && $isPermanent) {
+                    $metrics['calculated_payment'] = $metrics['basic_salary'];
+                }
 
                 // For >90% achievement, add mobile_payment as bonus on top of full package
                 if ($achievement > 90) {

@@ -68,6 +68,11 @@ class UpdateEmployeeRequest extends FormRequest
             'account_number' => 'nullable|string|max:50',
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
+            'username' => 'sometimes|nullable|string|max:255',
+            'user_type' => 'sometimes|nullable|in:admin,staff',
+            'role' => 'sometimes|nullable|string|max:255',
+            'geofence_ids' => 'sometimes|nullable|array',
+            'geofence_ids.*' => 'nullable|exists:geofences,id',
         ];
     }
 
