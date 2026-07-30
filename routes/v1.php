@@ -35,6 +35,7 @@ use App\Http\Controllers\V1\UserAllowedLocationController;
 use App\Http\Controllers\V1\LoanController;
 use App\Http\Controllers\V1\EmployeeSalaryController;
 use App\Http\Controllers\V1\PayrollDeductionController;
+use App\Http\Controllers\V1\WeekendHolidayWorkController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -146,6 +147,15 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('/', [HolidayController::class, 'index']);
         Route::post('/', [HolidayController::class, 'store']);
         Route::post('/sync', [HolidayController::class, 'sync']);
+    });
+
+    Route::prefix('weekend-holiday-works')->group(function () {
+        Route::get('/', [WeekendHolidayWorkController::class, 'index']);
+        Route::post('/', [WeekendHolidayWorkController::class, 'store']);
+        Route::get('check-date', [WeekendHolidayWorkController::class, 'checkDate']);
+        Route::get('{id}', [WeekendHolidayWorkController::class, 'show']);
+        Route::put('{id}', [WeekendHolidayWorkController::class, 'update']);
+        Route::delete('{id}', [WeekendHolidayWorkController::class, 'destroy']);
     });
 
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
