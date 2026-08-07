@@ -9,6 +9,7 @@ use App\Models\PayrollRecord;
 use App\Models\PayslipRequest;
 use App\Models\Employee;
 use App\Services\CdpConnectService;
+use App\Services\SriLankanTaxService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -360,7 +361,22 @@ class PayrollController extends Controller implements HasMiddleware
                 ], 400);
             }
 
-            $payslipRequest = PayslipRequest::where('user_id', Auth::id())
+            $user = Auth::user();
+            $userId = $user->id;
+
+            // Allow admins to look up another user's request (e.g. when viewing an employee's payroll details)
+            $requestedUserId = $request->query('user_id');
+            if ($requestedUserId) {
+                $isAdmin = in_array($user->user_type, ['admin', 'development_admin'], true)
+                    || $user->hasRole('Super Admin')
+                    || $user->roles->pluck('name')->contains(fn ($roleName) => stripos($roleName, 'admin') !== false);
+
+                if ($isAdmin) {
+                    $userId = (int) $requestedUserId;
+                }
+            }
+
+            $payslipRequest = PayslipRequest::where('user_id', $userId)
                 ->where('period', $period)
                 ->with('approver')
                 ->first();
@@ -433,12 +449,12 @@ class PayrollController extends Controller implements HasMiddleware
                 $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
 
                 \Log::info('CDP User Response', [
-        'employee_code' => $employee->employee_code,
-        'period' => $period,
-        'cdpUser' => $cdpUser,
-        'has_metrics' => isset($cdpUser['metrics']),
-        'metrics_value' => $cdpUser['metrics'] ?? null,
-    ]);
+                    'employee_code' => $employee->employee_code,
+                    'period' => $period,
+                    'cdpUser' => $cdpUser,
+                    'has_metrics' => isset($cdpUser['metrics']),
+                    'metrics_value' => $cdpUser['metrics'] ?? null,
+                ]);
 
                 if ($cdpUser && isset($cdpUser['metrics'])) {
                     $metrics = $cdpUser['metrics'];
@@ -521,12 +537,31 @@ class PayrollController extends Controller implements HasMiddleware
             $positionAllowance = $getSalaryField('position_allowance');
             $mobilePayment = $getSalaryField('mobile_payment');
             $howMuchPaid = $calculatedPayment + $mobilePaymentBonus;
+
+            // Deductions: EPF (8% of basic) + PAYE tax (taxable = basic - EPF) apply only to permanent staff.
+            // CDP recover amount applies to everyone.
+            $epfEmployee = 0.0;
+            $incomeTax = 0.0;
+            if ($isPermanent) {
+                $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
+                $taxableIncome = $basicSalary - $epfEmployee;
+                $incomeTax = SriLankanTaxService::paye($taxableIncome);
+                \Log::info('Deductions', [
+                    'epfEmployee' => $epfEmployee,
+                    'taxableIncome' => $taxableIncome,
+                    'incomeTax' => $incomeTax,
+                ]);
+            }
+            $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount, 2);
+            $netPay = round($howMuchPaid - $totalDeductions, 2);
+
             return response()->json([
                 'status' => 'success',
                 'data' => [
                     'employee_id' => $employee->id,
                     'employee_code' => $employee->employee_code,
                     'full_name' => $employee->full_name,
+                    'employee_type' => $employee->employee_type,
                     'designation_id' => $employee->designation_id,
                     'designation_name' => $designation ? $designation->name : null,
                     'basic_salary' => $basicSalary,
@@ -550,6 +585,10 @@ class PayrollController extends Controller implements HasMiddleware
                     'target_amount' => $targetAmount,
                     'achievement_amount' => $achievementAmount,
                     'recover_amount' => $recoverAmount,
+                    'epf' => $epfEmployee,
+                    'income_tax' => $incomeTax,
+                    'total_deductions' => $totalDeductions,
+                    'net_pay' => $netPay,
                     'period' => $period,
                     'metrics_found' => ! $metricsNotFound,
                 ],

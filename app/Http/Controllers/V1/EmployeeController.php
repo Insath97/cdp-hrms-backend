@@ -247,6 +247,34 @@ class EmployeeController extends Controller implements HasMiddleware
             throw $userError;
         }
 
+        // Auto-create salary details from designation defaults (overridable by request values)
+        try {
+            $designation = \App\Models\Designation::find($data['designation_id']);
+            if ($designation) {
+                $salaryFields = [
+                    'basic_salary', 'travel_reimbursement', 'vehicle_rental',
+                    'performance_allowance', 'incentive', 'position_allowance',
+                    'mobile_payment', 'monthly_target',
+                ];
+                $requestSalary = array_intersect_key($data, array_flip($salaryFields));
+                $employee->salaryDetail()->create(array_merge([
+                    'basic_salary' => $designation->basic_salary,
+                    'travel_reimbursement' => $designation->travel_reimbursement,
+                    'vehicle_rental' => $designation->vehicle_rental,
+                    'performance_allowance' => $designation->performance_allowance,
+                    'incentive' => $designation->incentive,
+                    'position_allowance' => $designation->position_allowance,
+                    'mobile_payment' => $designation->mobile_payment,
+                    'monthly_target' => $designation->monthly_target,
+                ], $requestSalary));
+            }
+        } catch (\Throwable $salError) {
+            Log::warning('Failed to auto-create salary details from designation', [
+                'employee_id' => $employee->id,
+                'error' => $salError->getMessage(),
+            ]);
+        }
+
         // Assign geofences to the user
         if (!empty($geofenceIds)) {
             $pivotData = [];
@@ -360,12 +388,31 @@ class EmployeeController extends Controller implements HasMiddleware
             $username = $data['username'] ?? null;
             unset($data['geofence_ids'], $data['user_type'], $data['role'], $data['username']);
 
+            // Extract salary fields and persist to employee_salary_details
+            $salaryFields = [
+                'basic_salary', 'travel_reimbursement', 'vehicle_rental',
+                'performance_allowance', 'incentive', 'position_allowance',
+                'mobile_payment', 'monthly_target',
+            ];
+            $salaryData = array_intersect_key($data, array_flip($salaryFields));
+            foreach ($salaryFields as $salaryField) {
+                unset($data[$salaryField]);
+            }
+
             // Handle profile image upload
             if ($request->hasFile('profile_image')) {
                 $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', $employee->profile_image, 'employees', $employee->employee_code.'_profile');
             }
 
             $employee->update($data);
+
+            // Upsert salary details (per-employee override of designation defaults)
+            if (! empty($salaryData)) {
+                $employee->salaryDetail()->updateOrCreate(
+                    ['employee_id' => $employee->id],
+                    $salaryData
+                );
+            }
 
             // Update associated user account & allowed geofences
             $user = \App\Models\User::where('employee_id', $employee->id)->first();

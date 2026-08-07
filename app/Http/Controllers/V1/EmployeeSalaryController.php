@@ -16,11 +16,44 @@ class EmployeeSalaryController extends Controller
     public function show($employeeId)
     {
         try {
+            $employee = Employee::with('designation')->findOrFail($employeeId);
+            $designation = $employee->designation;
             $salaryDetail = EmployeeSalaryDetail::where('employee_id', $employeeId)->first();
+
+            $componentFields = [
+                'basic_salary', 'travel_reimbursement', 'vehicle_rental',
+                'performance_allowance', 'incentive', 'position_allowance',
+                'mobile_payment', 'monthly_target',
+            ];
+
+            $data = [];
+            $hasOverride = false;
+
+            // Use employee override value if present, otherwise fall back to designation
+            foreach ($componentFields as $field) {
+                if ($salaryDetail && ! is_null($salaryDetail->{$field})) {
+                    $data[$field] = (float) $salaryDetail->{$field};
+                    $hasOverride = true;
+                } else {
+                    $data[$field] = $designation ? (float) ($designation->{$field} ?? 0) : 0;
+                }
+            }
+
+            if ($salaryDetail && ! is_null($salaryDetail->total_package)) {
+                $data['total_package'] = (float) $salaryDetail->total_package;
+            } elseif ($designation && ! is_null($designation->total_package)) {
+                $data['total_package'] = (float) $designation->total_package;
+            } else {
+                $data['total_package'] = (float) ($data['basic_salary'] + $data['travel_reimbursement'] + $data['vehicle_rental'] + $data['performance_allowance'] + $data['incentive'] + $data['position_allowance']);
+            }
+
+            $data['source'] = $hasOverride ? 'employee' : 'designation';
+            $data['designation_id'] = $designation?->id;
+            $data['designation_name'] = $designation?->name;
 
             return response()->json([
                 'status' => 'success',
-                'data' => $salaryDetail,
+                'data' => $data,
             ]);
         } catch (\Exception $e) {
             return response()->json([

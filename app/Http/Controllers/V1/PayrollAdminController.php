@@ -8,6 +8,7 @@ use App\Models\PayslipRequest;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\CdpConnectService;
+use App\Services\SriLankanTaxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
@@ -27,7 +28,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('auth:api'),
-            new Middleware('permission:Payroll Approve|Payroll View All', only: ['pendingRequests', 'approveRequest']),
+            new Middleware('permission:Payroll Approve|Payroll View All', only: ['pendingRequests', 'allRequests', 'approveRequest']),
             new Middleware('permission:Payroll Reject', only: ['rejectRequest']),
             new Middleware('permission:Payroll Generate', only: ['bulkGenerate']),
             new Middleware('permission:Payroll Update', only: ['updatePayroll']),
@@ -41,91 +42,12 @@ class PayrollAdminController extends Controller implements HasMiddleware
     public function pendingRequests()
     {
         try {
-        $requests = PayslipRequest::with(['user', 'employee.designation', 'employee.department', 'payrollRecord'])
-            ->where('status', 'pending')
-            ->orderBy('created_at', 'asc')
-            ->get();
+            $requests = PayslipRequest::with(['user', 'employee.designation', 'employee.department', 'payrollRecord'])
+                ->where('status', 'pending')
+                ->orderBy('created_at', 'asc')
+                ->get();
 
-            $cdpService = app(CdpConnectService::class);
-
-            $requests->each(function ($payslipRequest) use ($cdpService) {
-                $employee = $payslipRequest->employee;
-                $period = $payslipRequest->period ?? now()->format('Y-m');
-
-                $metrics = [
-                    'achievement_percentage' => 0,
-                    'payment_percentage' => 0,
-                    'payment_criteria' => 'No',
-                    'calculated_payment' => 0,
-                ];
-
-                if ($employee && $employee->employee_code) {
-                    try {
-                        $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
-                        if ($cdpUser && isset($cdpUser['metrics'])) {
-                            $m = $cdpUser['metrics'];
-                            $achievement = (float) ($m['achievement_percentage'] ?? $m['performance_percentage'] ?? $m['achievement'] ?? $m['performance'] ?? $m['score'] ?? 0);
-
-                            $salaryOverride = $employee->salaryDetail;
-                            $getSalaryField = function ($field) use ($salaryOverride, $employee) {
-                                if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
-                                    return (float) $salaryOverride->{$field};
-                                }
-                                $designation = $employee->designation;
-                                return $designation ? (float) ($designation->{$field} ?? 0) : 0.0;
-                            };
-
-                            $totalPackage = $getSalaryField('total_package');
-                            $mobilePayment = $getSalaryField('mobile_payment');
-                            $basicSalary = $getSalaryField('basic_salary');
-
-                            $paymentPercentage = 0;
-                            $paymentCriteria = 'No';
-                            $isPermanent = ($employee->employee_type === 'permanent');
-
-                            if ($achievement < 50) {
-                                $paymentPercentage = 0;
-                                $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
-                            } elseif ($achievement >= 50 && $achievement <= 65) {
-                                $paymentPercentage = 50;
-                                $paymentCriteria = '50% Total Package';
-                            } elseif ($achievement > 65 && $achievement <= 90) {
-                                $paymentPercentage = 75;
-                                $paymentCriteria = '75% Total Package';
-                            } else {
-                                $paymentPercentage = 100;
-                                $paymentCriteria = '100% Package + Mobile Bonus';
-                            }
-
-                            $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
-
-                            // Permanent staff always receive basic salary floor even when <50% achievement
-                            if ($achievement < 50 && $isPermanent) {
-                                $calculatedPayment = $basicSalary;
-                            }
-
-                            if ($achievement > 90) {
-                                $calculatedPayment = $totalPackage + $mobilePayment;
-                            }
-
-                            $metrics = [
-                                'achievement_percentage' => $achievement,
-                                'payment_percentage' => $paymentPercentage,
-                                'payment_criteria' => $paymentCriteria,
-                                'calculated_payment' => $calculatedPayment,
-                                'total_package' => $totalPackage,
-                            ];
-                        }
-                    } catch (\Throwable $th) {
-                        \Log::warning('Failed to fetch metrics for pending request', [
-                            'employee_id' => $employee?->id,
-                            'error' => $th->getMessage(),
-                        ]);
-                    }
-                }
-
-                $payslipRequest->metrics = $metrics;
-            });
+            $this->attachMetricsToRequests($requests);
 
             \Log::info('Pending payroll requests viewed', [
                 'user_id' => Auth::id(),
@@ -149,6 +71,135 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'message' => 'Failed to retrieve pending requests: ' . $th->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get all payslip requests (pending, approved, rejected) with optional status filter.
+     */
+    public function allRequests(Request $request)
+    {
+        try {
+            $query = PayslipRequest::with(['user', 'employee.designation', 'employee.department', 'payrollRecord', 'approver']);
+
+            $status = $request->get('status');
+            if (in_array($status, ['pending', 'approved', 'rejected'], true)) {
+                $query->where('status', $status);
+            }
+
+            $requests = $query->orderBy('created_at', 'desc')->get();
+
+            $this->attachMetricsToRequests($requests);
+
+            \Log::info('All payroll requests viewed', [
+                'user_id' => Auth::id(),
+                'count' => $requests->count(),
+                'status' => $status,
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Requests retrieved successfully',
+                'data' => $requests
+            ]);
+
+        } catch (\Throwable $th) {
+            \Log::error('Failed to retrieve payroll requests', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve payroll requests: ' . $th->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Attach computed payroll metrics to each payslip request.
+     */
+    private function attachMetricsToRequests($requests)
+    {
+        $cdpService = app(CdpConnectService::class);
+
+        $requests->each(function ($payslipRequest) use ($cdpService) {
+            $employee = $payslipRequest->employee;
+            $period = $payslipRequest->period ?? now()->format('Y-m');
+
+            $metrics = [
+                'achievement_percentage' => 0,
+                'payment_percentage' => 0,
+                'payment_criteria' => 'No',
+                'calculated_payment' => 0,
+            ];
+
+            if ($employee && $employee->employee_code) {
+                try {
+                    $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
+                    if ($cdpUser && isset($cdpUser['metrics'])) {
+                        $m = $cdpUser['metrics'];
+                        $achievement = (float) ($m['achievement_percentage'] ?? $m['performance_percentage'] ?? $m['achievement'] ?? $m['performance'] ?? $m['score'] ?? 0);
+
+                        $salaryOverride = $employee->salaryDetail;
+                        $getSalaryField = function ($field) use ($salaryOverride, $employee) {
+                            if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
+                                return (float) $salaryOverride->{$field};
+                            }
+                            $designation = $employee->designation;
+                            return $designation ? (float) ($designation->{$field} ?? 0) : 0.0;
+                        };
+
+                        $totalPackage = $getSalaryField('total_package');
+                        $mobilePayment = $getSalaryField('mobile_payment');
+                        $basicSalary = $getSalaryField('basic_salary');
+
+                        $paymentPercentage = 0;
+                        $paymentCriteria = 'No';
+                        $isPermanent = ($employee->employee_type === 'permanent');
+
+                        if ($achievement < 50) {
+                            $paymentPercentage = 0;
+                            $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
+                        } elseif ($achievement >= 50 && $achievement <= 65) {
+                            $paymentPercentage = 50;
+                            $paymentCriteria = '50% Total Package';
+                        } elseif ($achievement > 65 && $achievement <= 90) {
+                            $paymentPercentage = 75;
+                            $paymentCriteria = '75% Total Package';
+                        } else {
+                            $paymentPercentage = 100;
+                            $paymentCriteria = '100% Package + Mobile Bonus';
+                        }
+
+                        $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
+
+                        // Permanent staff always receive basic salary floor even when <50% achievement
+                        if ($achievement < 50 && $isPermanent) {
+                            $calculatedPayment = $basicSalary;
+                        }
+
+                        if ($achievement > 90) {
+                            $calculatedPayment = $totalPackage + $mobilePayment;
+                        }
+
+                        $metrics = [
+                            'achievement_percentage' => $achievement,
+                            'payment_percentage' => $paymentPercentage,
+                            'payment_criteria' => $paymentCriteria,
+                            'calculated_payment' => $calculatedPayment,
+                            'total_package' => $totalPackage,
+                        ];
+                    }
+                } catch (\Throwable $th) {
+                    \Log::warning('Failed to fetch metrics for pending request', [
+                        'employee_id' => $employee?->id,
+                        'error' => $th->getMessage(),
+                    ]);
+                }
+            }
+
+            $payslipRequest->metrics = $metrics;
+        });
     }
 
     /**
@@ -213,6 +264,14 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'commission' => 0,
                 'override_commission' => 0,
                 'total_commission' => 0,
+                'recover_amount' => 0,
+                'how_much_paid' => 0,
+                'epf' => 0,
+                'income_tax' => 0,
+                'total_deductions' => 0,
+                'net_pay' => 0,
+                'employee_type' => '',
+                'employee_code' => '',
             ];
 
             try {
@@ -249,6 +308,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     $metrics['commission'] = (float) ($m['commission'] ?? 0);
                     $metrics['override_commission'] = (float) ($m['override_commission'] ?? 0);
                     $metrics['total_commission'] = (float) ($m['total_commission'] ?? 0);
+                    $metrics['recover_amount'] = (float) ($m['recover_amount'] ?? 0);
                 }
                 if ($achievement === null) $achievement = 0;
 
@@ -281,6 +341,24 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 if ($achievement > 90) {
                     $metrics['calculated_payment'] = $metrics['total_package'] + $metrics['mobile_payment'];
                 }
+
+                $metrics['employee_type'] = $employee?->employee_type ?? '';
+                $metrics['employee_code'] = $employee?->employee_code ?? $user->employee_id ?? '';
+
+                // Gross pay = calculated payment (mobile bonus already included for >90%)
+                $metrics['how_much_paid'] = round($metrics['calculated_payment'], 2);
+
+                // Deductions: EPF (8% of basic) + PAYE tax (taxable = basic - EPF) apply only to permanent staff.
+                $epfEmployee = 0.0;
+                $incomeTax = 0.0;
+                if ($isPermanent) {
+                    $epfEmployee = SriLankanTaxService::epfEmployee($metrics['basic_salary']);
+                    $incomeTax = SriLankanTaxService::paye($metrics['basic_salary'] - $epfEmployee);
+                }
+                $metrics['epf'] = round($epfEmployee, 2);
+                $metrics['income_tax'] = round($incomeTax, 2);
+                $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'], 2);
+                $metrics['net_pay'] = round($metrics['how_much_paid'] - $metrics['total_deductions'], 2);
             } catch (\Throwable $th) {
                 \Log::warning('Failed to fetch metrics for payslip PDF', ['error' => $th->getMessage()]);
             }

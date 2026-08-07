@@ -243,13 +243,14 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'store']);
         Route::delete('/payroll/{payrollRecordId}/deductions/{deductionId}', [PayrollDeductionController::class, 'destroy']);
 
-        Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
-        Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
-        Route::post('/payroll/{id}/process', [PayrollAdminController::class, 'processPayroll']);
-
+        Route::get('/payroll/requests', [PayrollAdminController::class, 'allRequests']);
         Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
         Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
         Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
+
+        Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
+        Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
+        Route::post('/payroll/{id}/process', [PayrollAdminController::class, 'processPayroll']);
 
         Route::get('/password-change-requests', [PasswordChangeRequestController::class, 'index']);
         Route::post('/password-change-requests/{id}/approve', [PasswordChangeRequestController::class, 'approve']);
