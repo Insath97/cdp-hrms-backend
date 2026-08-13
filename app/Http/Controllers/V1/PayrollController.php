@@ -9,6 +9,8 @@ use App\Models\PayrollRecord;
 use App\Models\PayslipRequest;
 use App\Models\Employee;
 use App\Services\CdpConnectService;
+use App\Services\LoanDeductionService;
+use App\Services\PayrollActivationService;
 use App\Services\SriLankanTaxService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -42,6 +44,18 @@ class PayrollController extends Controller implements HasMiddleware
             }
 
             $payrollRecords = $query->get();
+
+            // Employees can only see payroll for activated months
+            if (! Auth::user()->can(PayrollActivationService::MANAGE_PERMISSION)) {
+                $activeMonths = \App\Models\PayrollMonth::where('status', '!=', 'inactive')
+                    ->pluck('month')
+                    ->all();
+
+                $payrollRecords = $payrollRecords->filter(function ($record) use ($activeMonths) {
+                    $normalized = PayrollActivationService::normalizeMonth($record->month);
+                    return $normalized !== null && in_array($normalized, $activeMonths, true);
+                })->values();
+            }
 
             // Get current month (first record)
             $currentMonth = $payrollRecords->first();
@@ -322,6 +336,14 @@ class PayrollController extends Controller implements HasMiddleware
 
             $user = Auth::user();
 
+            // Can only request a payslip for a month that has been activated
+            if (! PayrollActivationService::canView($request->period, $user)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Payroll for this month has not been activated yet.',
+                ], 403);
+            }
+
             $payslipRequest = PayslipRequest::create([
                 'user_id' => $user->id,
                 'employee_id' => $user->employee_id,
@@ -435,6 +457,14 @@ class PayrollController extends Controller implements HasMiddleware
 
             // Fetch metrics from external API service
             $period = $request->get('period_key', now()->format('Y-m'));
+
+            // Payroll for a month is only visible after HR activates it
+            if (! PayrollActivationService::canView($period, Auth::user())) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Payroll for this month has not been activated yet.',
+                ], 403);
+            }
 
             $achievement = null;
             $metricsNotFound = true;
@@ -552,7 +582,14 @@ class PayrollController extends Controller implements HasMiddleware
                     'incomeTax' => $incomeTax,
                 ]);
             }
-            $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount, 2);
+
+            // ── Active Loan / Advance / Custom Deductions ──────────────────────
+            // Sum monthly installments from the loans table that apply to this period
+            $loanDeductions = LoanDeductionService::activeForPeriod($employee->id, $period);
+            $loanDeductionItems  = $loanDeductions['items'];
+            $loanDeductionsTotal = $loanDeductions['total'];
+
+            $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount + $loanDeductionsTotal, 2);
             $netPay = round($howMuchPaid - $totalDeductions, 2);
 
             return response()->json([
@@ -587,6 +624,8 @@ class PayrollController extends Controller implements HasMiddleware
                     'recover_amount' => $recoverAmount,
                     'epf' => $epfEmployee,
                     'income_tax' => $incomeTax,
+                    'loan_deductions' => $loanDeductionItems,
+                    'loan_deductions_total' => round($loanDeductionsTotal, 2),
                     'total_deductions' => $totalDeductions,
                     'net_pay' => $netPay,
                     'period' => $period,

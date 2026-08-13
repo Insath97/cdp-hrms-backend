@@ -39,13 +39,20 @@ class PayrollDeductionController extends Controller
         try {
             $request->validate([
                 'deductions' => 'required|array',
-                'deductions.*.type' => 'required|in:epf_employee,loan,advance,absent,late,tax,penalty,other',
+                'deductions.*.type' => 'required|in:epf_employee,loan,advance,absent,late,tax,penalty,policy_cancellation,other',
                 'deductions.*.label' => 'required|string|max:255',
                 'deductions.*.amount' => 'required|numeric|min:0',
                 'deductions.*.loan_id' => 'nullable|exists:loans,id',
             ]);
 
             $payrollRecord = PayrollRecord::findOrFail($payrollRecordId);
+
+            if (\App\Services\PayrollActivationService::isLocked($payrollRecord->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
 
             DB::beginTransaction();
 
@@ -112,10 +119,18 @@ class PayrollDeductionController extends Controller
             $deduction = PayrollDeduction::where('payroll_record_id', $payrollRecordId)
                 ->findOrFail($deductionId);
 
+            $payrollRecord = PayrollRecord::findOrFail($payrollRecordId);
+
+            if (\App\Services\PayrollActivationService::isLocked($payrollRecord->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
+
             $deduction->delete();
 
             // Recalculate
-            $payrollRecord = PayrollRecord::findOrFail($payrollRecordId);
             $totalDeductions = PayrollDeduction::where('payroll_record_id', $payrollRecordId)
                 ->sum('amount');
 

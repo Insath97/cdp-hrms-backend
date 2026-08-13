@@ -4,10 +4,13 @@ namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\PayrollRecord;
+use App\Models\PayrollMonth;
 use App\Models\PayslipRequest;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\CdpConnectService;
+use App\Services\LoanDeductionService;
+use App\Services\PayrollActivationService;
 use App\Services\SriLankanTaxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -33,6 +36,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
             new Middleware('permission:Payroll Generate', only: ['bulkGenerate']),
             new Middleware('permission:Payroll Update', only: ['updatePayroll']),
             new Middleware('permission:Payroll Process', only: ['processPayroll']),
+            new Middleware('permission:Payroll Activate|Payroll View All', only: ['getMonthStatus']),
+            new Middleware('permission:Payroll Activate', only: ['activateMonth', 'lockMonth']),
         ];
     }
 
@@ -357,7 +362,15 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 }
                 $metrics['epf'] = round($epfEmployee, 2);
                 $metrics['income_tax'] = round($incomeTax, 2);
-                $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'], 2);
+
+                // Sum monthly installments from the loans table that apply to this period
+                $loanDeductions = LoanDeductionService::activeForPeriod((int) ($employee?->id ?? 0), (string) $period);
+                $loanDeductionItems = $loanDeductions['items'];
+                $loanDeductionsTotal = $loanDeductions['total'];
+
+                $metrics['loan_deductions'] = $loanDeductionItems;
+                $metrics['loan_deductions_total'] = round($loanDeductionsTotal, 2);
+                $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'] + $loanDeductionsTotal, 2);
                 $metrics['net_pay'] = round($metrics['how_much_paid'] - $metrics['total_deductions'], 2);
             } catch (\Throwable $th) {
                 \Log::warning('Failed to fetch metrics for payslip PDF', ['error' => $th->getMessage()]);
@@ -520,6 +533,23 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 });
             }
 
+            // Only HR users with the activate permission can list non-activated months
+            if (! Auth::user()->can(PayrollActivationService::MANAGE_PERMISSION)) {
+                $visibleNormalized = PayrollMonth::where('status', '!=', 'inactive')
+                    ->pluck('month')
+                    ->all();
+
+                $allowedRawMonths = PayrollRecord::distinct()
+                    ->pluck('month')
+                    ->filter(function ($raw) use ($visibleNormalized) {
+                        $normalized = PayrollActivationService::normalizeMonth($raw);
+                        return $normalized !== null && in_array($normalized, $visibleNormalized, true);
+                    })
+                    ->all();
+
+                $query->whereIn('month', $allowedRawMonths);
+            }
+
             $payrolls = $query->orderBy('month', 'desc')->paginate($perPage);
 
             return response()->json([
@@ -549,6 +579,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
         try {
             $payroll = PayrollRecord::with(['user', 'payslipRequests.approver'])->findOrFail($id);
 
+            if (! PayrollActivationService::canView($payroll->month, Auth::user())) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Payroll for this month has not been activated yet.',
+                ], 403);
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payroll details retrieved successfully',
@@ -560,6 +597,142 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'status' => 'error',
                 'message' => 'Payroll record not found'
             ], 404);
+        }
+    }
+
+    /**
+     * Get the activation status of a payroll month.
+     */
+    public function getMonthStatus(Request $request)
+    {
+        try {
+            $request->validate(['month' => 'required|string']);
+
+            $month = $request->month;
+            $record = PayrollActivationService::getOrCreate($month);
+
+            if (! $record) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid month format',
+                ], 422);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'month' => $record->month,
+                    'status' => $record->status,
+                    'activated_by' => $record->activator?->name ?? null,
+                    'activated_at' => $record->activated_at,
+                    'locked_by' => $record->locker?->name ?? null,
+                    'locked_at' => $record->locked_at,
+                ],
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve month status: '.$th->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Activate a payroll month so everyone can view its details.
+     */
+    public function activateMonth(Request $request)
+    {
+        try {
+            $request->validate(['month' => 'required|string']);
+
+            $record = PayrollActivationService::getOrCreate($request->month);
+            if (! $record) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid month format',
+                ], 422);
+            }
+
+            if ($record->isLocked()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be changed.',
+                ], 422);
+            }
+
+            $record->update([
+                'status' => 'active',
+                'activated_by' => Auth::id(),
+                'activated_at' => now(),
+            ]);
+
+            $this->logActivity('UPDATE', 'Payroll Month', "Activated payroll month {$record->month}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Payroll for {$record->month} activated successfully",
+                'data' => $record,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate payroll month: '.$th->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Lock a payroll month so it can no longer be modified.
+     */
+    public function lockMonth(Request $request)
+    {
+        try {
+            $request->validate(['month' => 'required|string']);
+
+            $record = PayrollActivationService::getOrCreate($request->month);
+            if (! $record) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid month format',
+                ], 422);
+            }
+
+            $record->update([
+                'status' => 'locked',
+                'locked_by' => Auth::id(),
+                'locked_at' => now(),
+            ]);
+
+            $this->logActivity('UPDATE', 'Payroll Month', "Locked payroll month {$record->month}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Payroll for {$record->month} locked",
+                'data' => $record,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to lock payroll month: '.$th->getMessage(),
+            ], 500);
         }
     }
 
@@ -577,6 +750,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
             ]);
 
             $payroll = PayrollRecord::findOrFail($id);
+
+            if (PayrollActivationService::isLocked($payroll->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
 
             $updateData = [];
             if ($request->has('basic')) $updateData['basic'] = $request->basic;
@@ -635,6 +815,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
         try {
             $payroll = PayrollRecord::findOrFail($id);
 
+            if (PayrollActivationService::isLocked($payroll->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
+
             $payroll->update([
                 'status' => 'processed',
                 'processed_at' => now()
@@ -674,6 +861,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'user_ids' => 'required|array',
                 'user_ids.*' => 'exists:users,id'
             ]);
+
+            if (PayrollActivationService::isLocked($request->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be regenerated.',
+                ], 403);
+            }
 
             $generated = [];
             $errors = [];

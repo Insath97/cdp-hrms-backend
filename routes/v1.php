@@ -122,6 +122,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('report/monthly', [AttendanceController::class, 'monthlyReport']);
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
         Route::delete('delete/{id}', [AttendanceController::class, 'destroy']);
+        Route::delete('{id}/force-delete', [AttendanceController::class, 'forceDelete']);
+        Route::delete('force-delete/{id}', [AttendanceController::class, 'forceDelete']);
+        Route::post('{id}/restore', [AttendanceController::class, 'restore']);
+        Route::post('restore/{id}', [AttendanceController::class, 'restore']);
         Route::post('process-rules', [AttendanceController::class, 'processRules']);
         Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
 
@@ -133,6 +137,8 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
     });
     Route::put('attendances', [AttendanceController::class, 'update']);
+    Route::post('attendances/{id}/restore', [AttendanceController::class, 'restore']);
+    Route::delete('attendances/{id}/force-delete', [AttendanceController::class, 'forceDelete']);
     Route::apiResource('attendances', AttendanceController::class);
 
     Route::prefix('attendance-settings')->group(function () {
@@ -247,6 +253,11 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
         Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
         Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
+
+        // Payroll month activation (must be before {id} routes to avoid conflicts)
+        Route::get('/payroll/month-status', [PayrollAdminController::class, 'getMonthStatus']);
+        Route::post('/payroll/months/activate', [PayrollAdminController::class, 'activateMonth']);
+        Route::post('/payroll/months/lock', [PayrollAdminController::class, 'lockMonth']);
 
         Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
         Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
