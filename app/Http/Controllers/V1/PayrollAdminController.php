@@ -890,10 +890,21 @@ class PayrollAdminController extends Controller implements HasMiddleware
 
             foreach ($request->user_ids as $userId) {
                 try {
-                    $user = User::find($userId);
+                    $user = User::with('employee.designation')->find($userId);
+
+                    if (! $user) {
+                        $errors[] = [
+                            'user_id' => $userId,
+                            'error' => 'User not found',
+                        ];
+                        continue;
+                    }
+
+                    $employee = $user->employee;
+                    $designation = $employee?->designation;
 
                     // Calculate salary components (adjust based on your business logic)
-                    $basic = $user->basic_salary ?? 0;
+                    $basic = $employee?->basic_salary ?? $user->basic_salary ?? 0;
                     $allowances = $this->calculateAllowances($user);
                     $deductions = $this->calculateDeductions($user);
                     $gross = $basic + $allowances;
@@ -908,9 +919,9 @@ class PayrollAdminController extends Controller implements HasMiddleware
                             'month' => $request->month
                         ],
                         [
-                            'employee_id'      => $employee->id,
-                            'designation_id'   => $designation->id ?? null,
-                            'designation_name' => $designation->name ?? null,
+                            'employee_id'      => $employee?->id ?? $user->employee_id,
+                            'designation_id'   => $designation?->id,
+                            'designation_name' => $designation?->name,
                             'basic' => $basic,
                             'allowances' => $allowances,
                             'total_deductions' => $deductions,
