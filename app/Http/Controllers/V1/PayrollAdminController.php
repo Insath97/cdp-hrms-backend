@@ -4,6 +4,7 @@ namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\PayrollRecord;
+use App\Models\PayrollDeduction;
 use App\Models\PayrollMonth;
 use App\Models\PayslipRequest;
 use App\Models\Employee;
@@ -33,7 +34,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             new Middleware('auth:api'),
             new Middleware('permission:Payroll Approve|Payroll View All', only: ['pendingRequests', 'allRequests', 'approveRequest']),
             new Middleware('permission:Payroll Reject', only: ['rejectRequest']),
-            new Middleware('permission:Payroll Generate', only: ['bulkGenerate']),
+            new Middleware('permission:Payroll Generate', only: ['bulkGenerate', 'processPayrolls']),
             new Middleware('permission:Payroll Update', only: ['updatePayroll']),
             new Middleware('permission:Payroll Process', only: ['processPayroll']),
             new Middleware('permission:Payroll Activate|Payroll View All', only: ['getMonthStatus']),
@@ -145,7 +146,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
                         $m = $cdpUser['metrics'];
                         $achievement = (float) ($m['achievement_percentage'] ?? $m['performance_percentage'] ?? $m['achievement'] ?? $m['performance'] ?? $m['score'] ?? 0);
 
-                        $salaryOverride = $employee->salaryDetail;
+                        $salaryOverride = $employee->salaryDetail()
+                            ->activeForPeriod(\Carbon\Carbon::parse($period))->first();
                         $getSalaryField = function ($field) use ($salaryOverride, $employee) {
                             if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
                                 return (float) $salaryOverride->{$field};
@@ -241,6 +243,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 $payrollRecord->basic = $basic;
                 $payrollRecord->allowances = 0;
                 $payrollRecord->deductions = 0;
+                $payrollRecord->total_deductions = 0;
                 $payrollRecord->epf_employee = 0;
                 $payrollRecord->epf_employer = 0;
                 $payrollRecord->etf_employer = 0;
@@ -273,15 +276,17 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'how_much_paid' => 0,
                 'epf' => 0,
                 'income_tax' => 0,
+                'wht_tax' => 0,
                 'total_deductions' => 0,
                 'net_pay' => 0,
                 'employee_type' => '',
                 'employee_code' => '',
+                'designation_name' => '',
             ];
 
             try {
-                $employee = Employee::with(['designation', 'salaryDetail'])->find($user->employee_id);
-                $salaryOverride = $employee?->salaryDetail;
+                $employee = Employee::with(['designation', 'department', 'activeSalaryDetail'])->find($user->employee_id);
+                $salaryOverride = $employee?->activeSalaryDetail;
 
                 // Use employee salary override if present, otherwise fall back to designation
                 $getSalaryField = function ($field) use ($salaryOverride, $employee) {
@@ -349,9 +354,10 @@ class PayrollAdminController extends Controller implements HasMiddleware
 
                 $metrics['employee_type'] = $employee?->employee_type ?? '';
                 $metrics['employee_code'] = $employee?->employee_code ?? $user->employee_id ?? '';
+                $metrics['designation_name'] = $employee?->designation?->name ?? $payrollRecord->designation_name ?? '';
 
                 // Gross pay = calculated payment (mobile bonus already included for >90%)
-                $metrics['how_much_paid'] = round($metrics['calculated_payment'], 2);
+                $metrics['how_much_paid'] = round($metrics['calculated_payment'] + $metrics['total_commission'], 2);
 
                 // Deductions: EPF (8% of basic) + PAYE tax (taxable = basic - EPF) apply only to permanent staff.
                 $epfEmployee = 0.0;
@@ -370,7 +376,18 @@ class PayrollAdminController extends Controller implements HasMiddleware
 
                 $metrics['loan_deductions'] = $loanDeductionItems;
                 $metrics['loan_deductions_total'] = round($loanDeductionsTotal, 2);
-                $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'] + $loanDeductionsTotal, 2);
+
+                // WHT (5% for non-permanent sales staff when howMuchPaid > 100,000)
+                $whtTax = 0.0;
+                $isPermanentForWht = $isPermanent;
+                $deptForWht = $employee?->department;
+                $isSalesStaff = $deptForWht && strtolower($deptForWht->name) === 'sales';
+                if (!$isPermanentForWht && $isSalesStaff && $metrics['how_much_paid'] > 100000) {
+                    $whtTax = round($metrics['how_much_paid'] * 0.05, 2);
+                }
+                $metrics['wht_tax'] = $whtTax;
+
+                $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'] + $loanDeductionsTotal + $whtTax, 2);
                 $metrics['net_pay'] = round($metrics['how_much_paid'] - $metrics['total_deductions'], 2);
             } catch (\Throwable $th) {
                 \Log::warning('Failed to fetch metrics for payslip PDF', ['error' => $th->getMessage()]);
@@ -745,7 +762,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             $request->validate([
                 'basic' => 'nullable|numeric|min:0',
                 'allowances' => 'nullable|numeric|min:0',
-                'deductions' => 'nullable|numeric|min:0',
+                'total_deductions' => 'nullable|numeric|min:0',
                 'status' => 'nullable|in:draft,pending,processed'
             ]);
 
@@ -761,20 +778,20 @@ class PayrollAdminController extends Controller implements HasMiddleware
             $updateData = [];
             if ($request->has('basic')) $updateData['basic'] = $request->basic;
             if ($request->has('allowances')) $updateData['allowances'] = $request->allowances;
-            if ($request->has('deductions')) $updateData['deductions'] = $request->deductions;
+            if ($request->has('total_deductions')) $updateData['total_deductions'] = $request->total_deductions;
             if ($request->has('status')) $updateData['status'] = $request->status;
 
             // Recalculate net and EPF if earnings changed
-            if (isset($updateData['basic']) || isset($updateData['allowances']) || isset($updateData['deductions'])) {
+            if (isset($updateData['basic']) || isset($updateData['allowances']) || isset($updateData['total_deductions'])) {
                 $basic = $updateData['basic'] ?? $payroll->basic;
                 $allowances = $updateData['allowances'] ?? $payroll->allowances;
-                $deductions = $updateData['deductions'] ?? $payroll->deductions;
+                $totalDeductions = $updateData['total_deductions'] ?? $payroll->total_deductions;
                 $gross = $basic + $allowances;
 
                 $updateData['epf_employee'] = $gross * 0.08;
                 $updateData['epf_employer'] = $gross * 0.12;
                 $updateData['etf_employer'] = $gross * 0.03;
-                $updateData['net'] = $gross - $updateData['epf_employee'] - $deductions;
+                $updateData['net'] = $gross - $updateData['epf_employee'] - $totalDeductions;
             }
 
             $payroll->update($updateData);
@@ -892,9 +909,12 @@ class PayrollAdminController extends Controller implements HasMiddleware
                             'month' => $request->month
                         ],
                         [
+                            'employee_id'      => $employee->id,
+                            'designation_id'   => $designation->id ?? null,
+                            'designation_name' => $designation->name ?? null,
                             'basic' => $basic,
                             'allowances' => $allowances,
-                            'deductions' => $deductions,
+                            'total_deductions' => $deductions,
                             'net' => $net,
                             'epf_employee' => $epfEmployee,
                             'epf_employer' => $epfEmployer,
@@ -943,6 +963,284 @@ class PayrollAdminController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to generate payroll: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Process payroll for selected employees (full calculation with CDP metrics, EPF/PAYE, commission, deductions)
+     */
+    public function processPayrolls(Request $request)
+    {
+        try {
+            $request->validate([
+                'month' => 'required|string',
+                'user_ids' => 'required|array|min:1',
+            ]);
+
+            if (PayrollActivationService::isLocked($request->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
+
+            $period = $request->month;
+            $generated = [];
+            $errors = [];
+
+            $cdpService = app(CdpConnectService::class);
+
+            foreach ($request->user_ids as $userId) {
+                try {
+                    // Frontend sends employee IDs — look up the linked user
+                    $employee = Employee::with(['user', 'designation', 'department', 'activeSalaryDetail'])->find($userId);
+                    if (! $employee) {
+                        $errors[] = ['user_id' => $userId, 'error' => 'Employee not found'];
+                        continue;
+                    }
+
+                    $user = $employee->user;
+                    if (! $user) {
+                        $errors[] = ['user_id' => $userId, 'error' => 'No linked user account'];
+                        continue;
+                    }
+
+                    if (! $user->is_active) {
+                        $errors[] = ['user_id' => $userId, 'error' => 'User account is inactive'];
+                        continue;
+                    }
+
+                    if (isset($employee->employment_status) && $employee->employment_status !== 'active') {
+                        $errors[] = ['user_id' => $userId, 'error' => 'Employee is not active'];
+                        continue;
+                    }
+                    $designation = $employee->designation;
+                    $salaryOverride = $employee->salaryDetail()
+                        ->activeForPeriod(\Carbon\Carbon::parse($period))->first();
+
+                    $getSalaryField = function ($field) use ($salaryOverride, $designation) {
+                        if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
+                            return (float) $salaryOverride->{$field};
+                        }
+                        return $designation ? (float) ($designation->{$field} ?? 0) : 0.0;
+                    };
+
+                    $totalPackage = $getSalaryField('total_package');
+                    $basicSalary = $getSalaryField('basic_salary');
+                    $travelReimbursement = $getSalaryField('travel_reimbursement');
+                    $vehicleRental = $getSalaryField('vehicle_rental');
+                    $performanceAllowance = $getSalaryField('performance_allowance');
+                    $incentive = $getSalaryField('incentive');
+                    $positionAllowance = $getSalaryField('position_allowance');
+                    $mobilePayment = $getSalaryField('mobile_payment');
+                    $monthlyTarget = $getSalaryField('monthly_target');
+                    $isPermanent = ($employee->employee_type === 'permanent');
+
+                    // Fetch CDP metrics
+                    $achievement = 0.0;
+                    $commission = 0.0;
+                    $overrideCommission = 0.0;
+                    $totalCommission = 0.0;
+                    $recoverAmount = 0.0;
+
+                    if ($employee->employee_code) {
+                        $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
+                        if ($cdpUser && isset($cdpUser['metrics'])) {
+                            $m = $cdpUser['metrics'];
+                            $achievement = (float) ($m['achievement_percentage'] ?? $m['performance_percentage'] ?? $m['achievement'] ?? $m['performance'] ?? $m['score'] ?? 0);
+                            $commission = (float) ($m['commission'] ?? 0);
+                            $overrideCommission = (float) ($m['override_commission'] ?? 0);
+                            $totalCommission = (float) ($m['total_commission'] ?? 0);
+                            $recoverAmount = (float) ($m['recover_amount'] ?? 0);
+                        }
+                    }
+
+                    // Payment boundary logic
+                    if ($achievement < 50) {
+                        $paymentPercentage = 0;
+                        $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
+                    } elseif ($achievement <= 65) {
+                        $paymentPercentage = 50;
+                        $paymentCriteria = '50% Total Package';
+                    } elseif ($achievement <= 90) {
+                        $paymentPercentage = 75;
+                        $paymentCriteria = '75% Total Package';
+                    } else {
+                        $paymentPercentage = 100;
+                        $paymentCriteria = '100% Package + Mobile Bonus';
+                    }
+
+                    $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
+                    $mobilePaymentBonus = 0.0;
+
+                    if ($achievement < 50 && $isPermanent) {
+                        $calculatedPayment = $basicSalary;
+                    }
+
+                    if ($achievement > 90) {
+                        $calculatedPayment = $totalPackage;
+                        $mobilePaymentBonus = $mobilePayment;
+                    }
+
+                    $howMuchPaid = round($calculatedPayment + $mobilePaymentBonus + $totalCommission, 2);
+
+                    // WHT (5% for non-permanent sales staff when howMuchPaid > 100,000)
+                    $whtTax = 0.0;
+                    $department = $employee->department;
+                    $isSalesStaff = $department && strtolower($department->name) === 'sales';
+                    if (!$isPermanent && $isSalesStaff && $howMuchPaid > 100000) {
+                        $whtTax = round($howMuchPaid * 0.05, 2);
+                    }
+
+                    // EPF/PAYE (permanent only)
+                    $epfEmployee = 0.0;
+                    $epfEmployer = 0.0;
+                    $etfEmployer = 0.0;
+                    $incomeTax = 0.0;
+                    if ($isPermanent) {
+                        $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
+                        $epfEmployer = round($basicSalary * 0.12, 2);
+                        $etfEmployer = round($basicSalary * 0.03, 2);
+                        $incomeTax = SriLankanTaxService::paye($basicSalary - $epfEmployee);
+                    }
+
+                    // Loan deductions
+                    $loanDeductions = LoanDeductionService::activeForPeriod((int) $employee->id, $period);
+                    $loanDeductionsTotal = $loanDeductions['total'];
+
+                    // Split loan vs advance totals
+                    $loanTotal = 0.0;
+                    $advanceTotal = 0.0;
+                    foreach ($loanDeductions['items'] as $item) {
+                        if ($item['type'] === 'advance') {
+                            $advanceTotal += $item['amount'];
+                        } else {
+                            $loanTotal += $item['amount'];
+                        }
+                    }
+
+                    $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount + $loanDeductionsTotal + $whtTax, 2);
+                    $netPay = round($howMuchPaid - $totalDeductions, 2);
+
+                    // Upsert payroll record with all details
+                    $payroll = PayrollRecord::updateOrCreate(
+                        ['user_id' => $user->id, 'month' => $period],
+                        [
+                            'employee_id'            => $employee->id,
+                            'designation_id'         => $designation->id ?? null,
+                            'designation_name'       => $designation->name ?? null,
+                            'basic'                  => $basicSalary,
+                            'allowances'             => 0,
+                            'travel_reimbursement'   => $travelReimbursement,
+                            'vehicle_rental'         => $vehicleRental,
+                            'performance_allowance'  => $performanceAllowance,
+                            'incentive'              => $incentive,
+                            'position_allowance'     => $positionAllowance,
+                            'mobile_payment'         => $mobilePayment,
+                            'monthly_target'         => $monthlyTarget,
+                            'total_package'          => $totalPackage,
+                            'achievement_percentage' => $achievement,
+                            'payment_percentage'     => $paymentPercentage,
+                            'payment_criteria'       => $paymentCriteria,
+                            'calculated_payment'     => $calculatedPayment,
+                            'mobile_payment_bonus'   => $mobilePaymentBonus,
+                            'commission'             => $commission,
+                            'override_commission'    => $overrideCommission,
+                            'total_commission'       => $totalCommission,
+                            'how_much_paid'          => $howMuchPaid,
+                            'epf_employee'           => round($epfEmployee, 2),
+                            'epf_employer'           => $epfEmployer,
+                            'etf_employer'           => $etfEmployer,
+                            'paye_tax'               => round($incomeTax, 2),
+                            'wht_tax'                => round($whtTax, 2),
+                            'recover_amount'         => round($recoverAmount, 2),
+                            'loan_deductions'        => round($loanTotal, 2),
+                            'advance_deductions'     => round($advanceTotal, 2),
+                            'total_deductions'       => $totalDeductions,
+                            'net'                    => $netPay,
+                            'status'                 => 'draft',
+                            'processed_at'           => null,
+                        ]
+                    );
+
+                    // Auto-populate deductions
+                    PayrollDeduction::where('payroll_record_id', $payroll->id)->where('is_auto', true)->delete();
+
+                    // EPF employee deduction
+                    if ($epfEmployee > 0) {
+                        PayrollDeduction::create([
+                            'payroll_record_id' => $payroll->id,
+                            'type'              => 'epf_employee',
+                            'label'             => 'EPF Employee Contribution (8%)',
+                            'amount'            => round($epfEmployee, 2),
+                            'is_auto'           => true,
+                        ]);
+                    }
+
+                    // PAYE income tax
+                    if ($incomeTax > 0) {
+                        PayrollDeduction::create([
+                            'payroll_record_id' => $payroll->id,
+                            'type'              => 'tax',
+                            'label'             => 'PAYE Income Tax',
+                            'amount'            => round($incomeTax, 2),
+                            'is_auto'           => true,
+                        ]);
+                    }
+
+                    // CDP recover amount
+                    if ($recoverAmount > 0) {
+                        PayrollDeduction::create([
+                            'payroll_record_id' => $payroll->id,
+                            'type'              => 'other',
+                            'label'             => 'CDP Recover Amount',
+                            'amount'            => round($recoverAmount, 2),
+                            'is_auto'           => true,
+                        ]);
+                    }
+
+                    // Loan / advance deductions
+                    foreach ($loanDeductions['items'] as $item) {
+                        PayrollDeduction::create([
+                            'payroll_record_id' => $payroll->id,
+                            'type'              => $item['type'],
+                            'label'             => $item['label'],
+                            'amount'            => $item['amount'],
+                            'loan_id'           => $item['loan_id'],
+                            'is_auto'           => true,
+                        ]);
+                    }
+
+                    $generated[] = $payroll;
+
+                } catch (\Exception $e) {
+                    $errors[] = ['user_id' => $userId, 'error' => $e->getMessage()];
+                }
+            }
+
+            $this->logActivity('GENERATE', 'Payroll', "Processed payroll for month {$period}", ['generated' => count($generated), 'failed' => count($errors)]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Payroll processed successfully',
+                'data' => [
+                    'generated' => count($generated),
+                    'failed'    => count($errors),
+                    'errors'    => $errors,
+                ],
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to process payroll: ' . $e->getMessage(),
             ], 500);
         }
     }

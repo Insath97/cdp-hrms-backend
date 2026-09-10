@@ -18,7 +18,10 @@ class EmployeeSalaryController extends Controller
         try {
             $employee = Employee::with('designation')->findOrFail($employeeId);
             $designation = $employee->designation;
-            $salaryDetail = EmployeeSalaryDetail::where('employee_id', $employeeId)->first();
+            $salaryDetail = EmployeeSalaryDetail::where('employee_id', $employeeId)
+                ->whereNull('effective_to')
+                ->latest('effective_from')
+                ->first();
 
             $componentFields = [
                 'basic_salary', 'travel_reimbursement', 'vehicle_rental',
@@ -50,6 +53,10 @@ class EmployeeSalaryController extends Controller
             $data['source'] = $hasOverride ? 'employee' : 'designation';
             $data['designation_id'] = $designation?->id;
             $data['designation_name'] = $designation?->name;
+            $data['effective_from'] = $salaryDetail?->effective_from?->format('Y-m-d');
+            $data['effective_to'] = $salaryDetail?->effective_to?->format('Y-m-d');
+            $data['salary_designation_id'] = $salaryDetail?->designation_id;
+            $data['salary_designation_name'] = $salaryDetail?->designation_name;
 
             return response()->json([
                 'status' => 'success',
@@ -75,6 +82,7 @@ class EmployeeSalaryController extends Controller
                 'position_allowance' => 'nullable|numeric|min:0',
                 'mobile_payment' => 'nullable|numeric|min:0',
                 'monthly_target' => 'nullable|numeric|min:0',
+                'effective_from' => 'nullable|date',
             ]);
 
             $employee = Employee::findOrFail($employeeId);
@@ -82,13 +90,31 @@ class EmployeeSalaryController extends Controller
             $data = $request->only([
                 'basic_salary', 'travel_reimbursement', 'vehicle_rental',
                 'performance_allowance', 'incentive', 'position_allowance',
-                'mobile_payment', 'monthly_target',
+                'mobile_payment', 'monthly_target', 'effective_from',
             ]);
 
-            $salaryDetail = EmployeeSalaryDetail::updateOrCreate(
-                ['employee_id' => $employeeId],
-                $data
-            );
+            $today = \Carbon\Carbon::today()->toDateString();
+
+            $effectiveFrom = $data['effective_from'] ?? $today;
+            unset($data['effective_from']);
+
+            $currentDesignation = \App\Models\Designation::find($employee->designation_id);
+
+            // Close the currently active salary record
+            EmployeeSalaryDetail::where('employee_id', $employeeId)
+                ->whereNull('effective_to')
+                ->update(['effective_to' => $today]);
+
+            // Create new salary record
+            $salaryDetail = EmployeeSalaryDetail::create(array_merge(
+                $data,
+                [
+                    'employee_id' => $employeeId,
+                    'designation_id' => $currentDesignation?->id,
+                    'designation_name' => $currentDesignation?->name,
+                    'effective_from' => $effectiveFrom,
+                ]
+            ));
 
             $this->logActivity('UPDATE', 'Employee Salary', "Updated salary details for employee ID: {$employeeId}");
 
@@ -115,18 +141,20 @@ class EmployeeSalaryController extends Controller
     public function destroy($employeeId)
     {
         try {
-            $salaryDetail = EmployeeSalaryDetail::where('employee_id', $employeeId)->first();
+            $salaryDetail = EmployeeSalaryDetail::where('employee_id', $employeeId)
+                ->whereNull('effective_to')
+                ->first();
 
             if (!$salaryDetail) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'No salary details found for this employee',
+                    'message' => 'No active salary details found for this employee',
                 ], 404);
             }
 
-            $salaryDetail->delete();
+            $salaryDetail->update(['effective_to' => now()->subDay()->toDateString()]);
 
-            $this->logActivity('DELETE', 'Employee Salary', "Removed salary override for employee ID: {$employeeId}");
+            $this->logActivity('DELETE', 'Employee Salary', "Archived salary override for employee ID: {$employeeId}");
 
             return response()->json([
                 'status' => 'success',
@@ -136,6 +164,26 @@ class EmployeeSalaryController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to delete salary details: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function history($employeeId)
+    {
+        try {
+            $employee = Employee::findOrFail($employeeId);
+            $history = EmployeeSalaryDetail::where('employee_id', $employeeId)
+                ->orderByDesc('effective_from')
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $history,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve salary history: ' . $e->getMessage(),
             ], 500);
         }
     }

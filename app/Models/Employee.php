@@ -151,6 +151,18 @@ class Employee extends Model
         return $this->hasOne(EmployeeSalaryDetail::class);
     }
 
+    public function salaryHistory(): HasMany
+    {
+        return $this->hasMany(EmployeeSalaryDetail::class)->orderByDesc('effective_from');
+    }
+
+    public function activeSalaryDetail()
+    {
+        return $this->hasOne(EmployeeSalaryDetail::class)
+            ->whereNull('effective_to')
+            ->latest('effective_from');
+    }
+
     public function loans(): HasMany
     {
         return $this->hasMany(Loan::class);

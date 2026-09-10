@@ -34,6 +34,9 @@
     <div class="employee-info">
         <strong>{{ $user->name }}</strong><br>
         Employee ID: <span class="badge">{{ isset($metrics['employee_code']) && $metrics['employee_code'] ? $metrics['employee_code'] : ($user->employee_id ?? 'N/A') }}</span><br>
+        @if(isset($metrics['designation_name']) && $metrics['designation_name'])
+        Designation: <span class="badge">{{ $metrics['designation_name'] }}</span><br>
+        @endif
         @if(isset($metrics['employee_type']) && $metrics['employee_type'])
         Employee Type: <span class="badge">{{ strtoupper(str_replace('_', ' ', $metrics['employee_type'])) }}</span><br>
         @endif
@@ -95,6 +98,9 @@
             @if(($metrics['income_tax'] ?? 0) > 0)
             <tr><td class="label">Income Tax (PAYE)</td><td class="value">LKR {{ number_format($metrics['income_tax'], 2) }}</td></tr>
             @endif
+            @if(($metrics['wht_tax'] ?? 0) > 0)
+            <tr><td class="label">WHT (Withholding Tax 5%)</td><td class="value">LKR {{ number_format($metrics['wht_tax'], 2) }}</td></tr>
+            @endif
             @if(($metrics['recover_amount'] ?? 0) > 0)
             <tr><td class="label">Recover Amount (CDP)</td><td class="value">LKR {{ number_format($metrics['recover_amount'], 2) }}</td></tr>
             @endif
@@ -110,7 +116,7 @@
 
     <div class="section">
         <table>
-            <tr class="total-row"><td><strong>Net Pay</strong></td><td class="value"><strong>LKR {{ number_format(($metrics['how_much_paid'] ?? 0) + ($metrics['total_commission'] ?? 0) - ($metrics['total_deductions'] ?? 0), 2) }}</strong></td></tr>
+            <tr class="total-row"><td><strong>Net Pay</strong></td><td class="value"><strong>LKR {{ number_format(($metrics['how_much_paid'] ?? 0) - ($metrics['total_deductions'] ?? 0), 2) }}</strong></td></tr>
         </table>
     </div>
     @endif
@@ -128,11 +134,25 @@
     <div class="section">
         <div class="section-title">Deductions</div>
         <table>
+            @if(($payroll->epf_employee ?? 0) > 0)
             <tr><td class="label">EPF (Employee 8%)</td><td class="value">LKR {{ number_format($payroll->epf_employee, 2) }}</td></tr>
-            @if($payroll->deductions > 0)
-            <tr><td class="label">Loss of Pay / Other Deductions</td><td class="value">LKR {{ number_format($payroll->deductions, 2) }}</td></tr>
             @endif
-            <tr class="total-row"><td>Total Deductions</td><td class="value">LKR {{ number_format($payroll->epf_employee + $payroll->deductions, 2) }}</td></tr>
+            @if(($payroll->paye_tax ?? 0) > 0)
+            <tr><td class="label">PAYE Income Tax</td><td class="value">LKR {{ number_format($payroll->paye_tax, 2) }}</td></tr>
+            @endif
+            @if(($payroll->wht_tax ?? 0) > 0)
+            <tr><td class="label">WHT (Withholding Tax 5%)</td><td class="value">LKR {{ number_format($payroll->wht_tax, 2) }}</td></tr>
+            @endif
+            @if(($payroll->recover_amount ?? 0) > 0)
+            <tr><td class="label">CDP Recover Amount</td><td class="value">LKR {{ number_format($payroll->recover_amount, 2) }}</td></tr>
+            @endif
+            @if(($payroll->loan_deductions ?? 0) > 0)
+            <tr><td class="label">Loan Installments</td><td class="value">LKR {{ number_format($payroll->loan_deductions, 2) }}</td></tr>
+            @endif
+            @if(($payroll->advance_deductions ?? 0) > 0)
+            <tr><td class="label">Salary Advances</td><td class="value">LKR {{ number_format($payroll->advance_deductions, 2) }}</td></tr>
+            @endif
+            <tr class="total-row"><td>Total Deductions</td><td class="value">LKR {{ number_format($payroll->total_deductions, 2) }}</td></tr>
         </table>
     </div>
 

@@ -20,6 +20,10 @@ class Loan extends Model
         'start_date',
         'end_date',
         'status',
+        'approval_status',
+        'rejection_reason',
+        'approved_by',
+        'approved_at',
     ];
 
     protected $casts = [
@@ -28,11 +32,17 @@ class Loan extends Model
         'remaining_amount' => 'decimal:2',
         'start_date' => 'date:Y-m-d',
         'end_date' => 'date:Y-m-d',
+        'approved_at' => 'datetime',
     ];
 
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function deductions()

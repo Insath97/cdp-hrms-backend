@@ -17,11 +17,16 @@ class PayrollDeduction extends Model
         'amount',
         'loan_id',
         'is_auto',
+        'approval_status',
+        'rejection_reason',
+        'approved_by',
+        'approved_at',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'is_auto' => 'boolean',
+        'approved_at' => 'datetime',
     ];
 
     public function payrollRecord(): BelongsTo
@@ -32,5 +37,10 @@ class PayrollDeduction extends Model
     public function loan(): BelongsTo
     {
         return $this->belongsTo(Loan::class);
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 }

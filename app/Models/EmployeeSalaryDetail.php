@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Carbon\Carbon;
 
 class EmployeeSalaryDetail extends Model
 {
@@ -12,6 +13,8 @@ class EmployeeSalaryDetail extends Model
 
     protected $fillable = [
         'employee_id',
+        'designation_id',
+        'designation_name',
         'basic_salary',
         'travel_reimbursement',
         'vehicle_rental',
@@ -21,6 +24,8 @@ class EmployeeSalaryDetail extends Model
         'mobile_payment',
         'monthly_target',
         'total_package',
+        'effective_from',
+        'effective_to',
     ];
 
     protected $casts = [
@@ -33,6 +38,8 @@ class EmployeeSalaryDetail extends Model
         'mobile_payment' => 'decimal:2',
         'monthly_target' => 'decimal:2',
         'total_package' => 'decimal:2',
+        'effective_from' => 'date',
+        'effective_to' => 'date',
     ];
 
     protected static function boot()
@@ -53,5 +60,21 @@ class EmployeeSalaryDetail extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function scopeActiveForPeriod($query, Carbon $date)
+    {
+        return $query->where('effective_from', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('effective_to')
+                    ->orWhere('effective_to', '>=', $date);
+            });
+    }
+
+    public function isActive(): bool
+    {
+        $now = Carbon::now();
+        return $this->effective_from->lte($now)
+            && (is_null($this->effective_to) || $this->effective_to->gte($now));
     }
 }
