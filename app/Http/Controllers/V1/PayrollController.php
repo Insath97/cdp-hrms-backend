@@ -433,7 +433,7 @@ class PayrollController extends Controller implements HasMiddleware
                 ], 400);
             }
 
-            $employee = Employee::with(['designation', 'salaryDetail'])->find($employeeId);
+            $employee = Employee::with(['designation', 'department', 'activeSalaryDetail'])->find($employeeId);
 
             if (! $employee) {
                 return response()->json([
@@ -443,7 +443,7 @@ class PayrollController extends Controller implements HasMiddleware
             }
 
             $designation = $employee->designation;
-            $salaryOverride = $employee->salaryDetail;
+            $salaryOverride = $employee->activeSalaryDetail;
 
             // Use employee salary override if present, otherwise fall back to designation
             $getSalaryField = function ($field) use ($salaryOverride, $designation) {
@@ -566,19 +566,18 @@ class PayrollController extends Controller implements HasMiddleware
             $incentive = $getSalaryField('incentive');
             $positionAllowance = $getSalaryField('position_allowance');
             $mobilePayment = $getSalaryField('mobile_payment');
-            $howMuchPaid = $calculatedPayment + $mobilePaymentBonus;
+            $howMuchPaid = $calculatedPayment + $mobilePaymentBonus + $totalCommission;
 
-            // Deductions: EPF (8% of basic) + PAYE tax (taxable = basic - EPF) apply only to permanent staff.
+            // Deductions: EPF (8% of basic) + PAYE tax (on howMuchPaid) apply only to permanent staff.
             // CDP recover amount applies to everyone.
             $epfEmployee = 0.0;
             $incomeTax = 0.0;
             if ($isPermanent) {
                 $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
-                $taxableIncome = $basicSalary - $epfEmployee;
-                $incomeTax = SriLankanTaxService::paye($taxableIncome);
+                $incomeTax = SriLankanTaxService::paye($howMuchPaid);
                 \Log::info('Deductions', [
                     'epfEmployee' => $epfEmployee,
-                    'taxableIncome' => $taxableIncome,
+                    'howMuchPaid' => $howMuchPaid,
                     'incomeTax' => $incomeTax,
                 ]);
             }
@@ -590,6 +589,15 @@ class PayrollController extends Controller implements HasMiddleware
             $loanDeductionsTotal = $loanDeductions['total'];
 
             $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount + $loanDeductionsTotal, 2);
+
+            // WHT (5% for non-permanent sales staff when howMuchPaid > 100,000)
+            $whtTax = 0.0;
+            $deptForWht = $employee->department;
+            $isSalesStaff = $deptForWht && strtolower($deptForWht->name) === 'sales';
+            if (!$isPermanent && $isSalesStaff && $howMuchPaid > 100000) {
+                $whtTax = round($howMuchPaid * 0.05, 2);
+            }
+            $totalDeductions = round($totalDeductions + $whtTax, 2);
             $netPay = round($howMuchPaid - $totalDeductions, 2);
 
             return response()->json([
@@ -624,6 +632,7 @@ class PayrollController extends Controller implements HasMiddleware
                     'recover_amount' => $recoverAmount,
                     'epf' => $epfEmployee,
                     'income_tax' => $incomeTax,
+                    'wht_tax' => $whtTax,
                     'loan_deductions' => $loanDeductionItems,
                     'loan_deductions_total' => round($loanDeductionsTotal, 2),
                     'total_deductions' => $totalDeductions,

@@ -117,6 +117,7 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Payroll Update', 'group_name' => 'Payroll Management Permissions'],
             ['name' => 'Payroll Process', 'group_name' => 'Payroll Management Permissions'],
             ['name' => 'Payroll Activate', 'group_name' => 'Payroll Management Permissions'],
+            ['name' => 'Payroll Deduction Approve', 'group_name' => 'Payroll Management Permissions'],
 
             /* Import Management */
             ['name' => 'Import Index', 'group_name' => 'Import Management Permissions'],

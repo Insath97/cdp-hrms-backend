@@ -244,7 +244,12 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
         Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
 
+        Route::post('/payroll/process-batch', [PayrollAdminController::class, 'processPayrolls']);
+
         // Payroll Deductions (must be before {id} routes to avoid conflicts)
+        Route::post('/payroll/deductions/{deductionId}/approve', [PayrollDeductionController::class, 'approve']);
+        Route::post('/payroll/deductions/{deductionId}/reject', [PayrollDeductionController::class, 'reject']);
+        Route::get('/payroll/{payrollRecordId}/deductions/pending', [PayrollDeductionController::class, 'pendingDeductions']);
         Route::get('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'index']);
         Route::post('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'store']);
         Route::delete('/payroll/{payrollRecordId}/deductions/{deductionId}', [PayrollDeductionController::class, 'destroy']);
@@ -295,11 +300,17 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     });
 
     // Loans
-    Route::apiResource('loans', LoanController::class);
-    Route::get('loans/employee/{employeeId}', [LoanController::class, 'getByEmployee']);
+    Route::middleware(['permission:Payroll Update|Payroll Deduction Approve'])->group(function () {
+        Route::get('loans/pending-approvals', [LoanController::class, 'pendingApprovals']);
+        Route::post('loans/{id}/approve', [LoanController::class, 'approve']);
+        Route::post('loans/{id}/reject', [LoanController::class, 'reject']);
+        Route::apiResource('loans', LoanController::class);
+        Route::get('loans/employee/{employeeId}', [LoanController::class, 'getByEmployee']);
+    });
 
     // Employee Salary Details
     Route::get('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'show']);
+    Route::get('employees/{employeeId}/salary/history', [EmployeeSalaryController::class, 'history']);
     Route::put('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'upsert']);
     Route::delete('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'destroy']);
 });

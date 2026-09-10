@@ -17,7 +17,7 @@ class LoanController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Loan::with('employee');
+            $query = Loan::with('employee', 'approver');
 
             if ($request->has('employee_id')) {
                 $query->where('employee_id', $request->employee_id);
@@ -25,6 +25,10 @@ class LoanController extends Controller
 
             if ($request->has('status')) {
                 $query->where('status', $request->status);
+            }
+
+            if ($request->has('approval_status')) {
+                $query->where('approval_status', $request->approval_status);
             }
 
             if ($request->has('search')) {
@@ -73,15 +77,16 @@ class LoanController extends Controller
                 'start_date' => $request->start_date,
                 'end_date' => $request->end_date,
                 'status' => 'active',
+                'approval_status' => 'pending',
             ]);
 
             $loan->load('employee');
 
-            $this->logActivity('CREATE', 'Loans', "Created loan (ID: {$loan->id}) for employee ID: {$loan->employee_id}. Amount: {$loan->total_amount}");
+            $this->logActivity('CREATE', 'Loans', "Created loan (ID: {$loan->id}) for employee ID: {$loan->employee_id}. Amount: {$loan->total_amount}. Status: Pending Approval");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Loan created successfully',
+                'message' => 'Loan created successfully (pending approval)',
                 'data' => $loan,
             ], 201);
 
@@ -102,7 +107,7 @@ class LoanController extends Controller
     public function show($id)
     {
         try {
-            $loan = Loan::with('employee', 'deductions')->findOrFail($id);
+            $loan = Loan::with('employee', 'deductions', 'approver')->findOrFail($id);
 
             return response()->json([
                 'status' => 'success',
@@ -131,18 +136,30 @@ class LoanController extends Controller
                 'status' => 'nullable|in:active,completed,cancelled',
             ]);
 
-            $loan->update($request->only([
+            $data = $request->only([
                 'loan_type', 'description', 'total_amount',
                 'monthly_installment', 'start_date', 'end_date', 'status',
-            ]));
+            ]);
+
+            // If editing an approved loan, reset to pending for re-approval
+            if ($loan->approval_status === 'approved') {
+                $data['approval_status'] = 'pending';
+                $data['rejection_reason'] = null;
+                $data['approved_by'] = null;
+                $data['approved_at'] = null;
+            }
+
+            $loan->update($data);
 
             $loan->load('employee');
 
-            $this->logActivity('UPDATE', 'Loans', "Updated loan (ID: {$loan->id}) for employee ID: {$loan->employee_id}");
+            $this->logActivity('UPDATE', 'Loans', "Updated loan (ID: {$loan->id}) for employee ID: {$loan->employee_id}" . ($loan->approval_status === 'pending' ? '. Reset to pending approval.' : ''));
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Loan updated successfully',
+                'message' => $loan->approval_status === 'pending'
+                    ? 'Loan updated and resubmitted for approval'
+                    : 'Loan updated successfully',
                 'data' => $loan,
             ]);
 
@@ -196,6 +213,103 @@ class LoanController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve loans: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function pendingApprovals(Request $request)
+    {
+        try {
+            $query = Loan::where('approval_status', 'pending')
+                ->with('employee');
+
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->whereHas('employee', function ($q) use ($search) {
+                    $q->where('full_name', 'like', "%{$search}%")
+                      ->orWhere('employee_code', 'like', "%{$search}%");
+                });
+            }
+
+            $perPage = $request->get('per_page', 15);
+            $loans = $query->orderBy('created_at', 'asc')->paginate($perPage);
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $loans,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve pending approvals: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function approve($id)
+    {
+        try {
+            $loan = Loan::findOrFail($id);
+
+            $loan->update([
+                'approval_status' => 'approved',
+                'rejection_reason' => null,
+                'approved_by' => Auth::id(),
+                'approved_at' => now(),
+            ]);
+
+            $loan->load('employee', 'approver');
+
+            $this->logActivity('APPROVE', 'Loans', "Approved loan (ID: {$loan->id}) for employee ID: {$loan->employee_id}. Amount: {$loan->total_amount}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Loan deduction approved',
+                'data' => $loan,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to approve loan: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function reject(Request $request, $id)
+    {
+        try {
+            $request->validate([
+                'rejection_reason' => 'required|string|max:500',
+            ]);
+
+            $loan = Loan::findOrFail($id);
+
+            $loan->update([
+                'approval_status' => 'rejected',
+                'rejection_reason' => $request->rejection_reason,
+                'approved_by' => Auth::id(),
+                'approved_at' => now(),
+            ]);
+
+            $loan->load('employee', 'approver');
+
+            $this->logActivity('REJECT', 'Loans', "Rejected loan (ID: {$loan->id}) for employee ID: {$loan->employee_id}. Reason: {$request->rejection_reason}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Loan deduction rejected',
+                'data' => $loan,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to reject loan: ' . $e->getMessage(),
             ], 500);
         }
     }

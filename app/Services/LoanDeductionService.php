@@ -23,6 +23,7 @@ class LoanDeductionService
 
         $activeLoans = Loan::where('employee_id', $employeeId)
             ->where('status', 'active')
+            ->where('approval_status', 'approved')
             ->where('remaining_amount', '>', 0)
             ->get();
 

@@ -67,7 +67,7 @@ class EmployeeController extends Controller implements HasMiddleware
                 $query->where('employee_type', $request->employee_type);
             }
 
-            $employees = $query->paginate($perPage);
+            $employees = $query->orderBy('employee_code', 'asc')->paginate($perPage);
 
             $employeesArray = $employees->toArray();
             foreach ($employeesArray['data'] as &$employee) {
@@ -186,8 +186,16 @@ class EmployeeController extends Controller implements HasMiddleware
             // Use user_type from request if provided, otherwise default to 'staff'
             $userType = $data['user_type'] ?? 'staff';
 
-            // Use role from request if provided, otherwise derive from user_type
-            // $roleValue = $data['role'] ?? (($userType === 'admin') ? 'Admin' : 'Staff');
+            // Determine role to assign
+            $roleValue = 'Staff';
+            if (!empty($data['role'])) {
+                $roleModel = is_numeric($data['role'])
+                    ? \Spatie\Permission\Models\Role::find($data['role'])
+                    : \Spatie\Permission\Models\Role::where('name', $data['role'])->first();
+                $roleValue = $roleModel ? $roleModel->name : $data['role'];
+            } elseif ($userType === 'admin') {
+                $roleValue = 'Admin';
+            }
 
             // Create the user
             $user = \App\Models\User::create([
@@ -197,13 +205,11 @@ class EmployeeController extends Controller implements HasMiddleware
                 'email' => $email,
                 'password' => \Illuminate\Support\Facades\Hash::make($rawPassword),
                 'user_type' => $userType,
-                // 'role' => $roleValue,
                 'is_active' => true,
                 'can_login' => true,
             ]);
 
-              $roleModel = \Spatie\Permission\Models\Role::find($data['role']);
-              $user->assignRole($roleModel ? $roleModel->name : ($data['role'] ?? 'Staff'));
+            $user->assignRole($roleValue);
 
             // Send welcome email with credentials
             try {
@@ -247,8 +253,7 @@ class EmployeeController extends Controller implements HasMiddleware
             throw $userError;
         }
 
-        
-        // Auto-create salary details from designation defaults (overridable by request values)
+        // Create salary detail ONLY if the request contains values that differ from designation defaults
         try {
             $designation = \App\Models\Designation::find($data['designation_id']);
             if ($designation) {
@@ -258,16 +263,25 @@ class EmployeeController extends Controller implements HasMiddleware
                     'mobile_payment', 'monthly_target',
                 ];
                 $requestSalary = array_intersect_key($data, array_flip($salaryFields));
-                $employee->salaryDetail()->create(array_merge([
-                    'basic_salary' => $designation->basic_salary,
-                    'travel_reimbursement' => $designation->travel_reimbursement,
-                    'vehicle_rental' => $designation->vehicle_rental,
-                    'performance_allowance' => $designation->performance_allowance,
-                    'incentive' => $designation->incentive,
-                    'position_allowance' => $designation->position_allowance,
-                    'mobile_payment' => $designation->mobile_payment,
-                    'monthly_target' => $designation->monthly_target,
-                ], $requestSalary));
+
+                $hasOverride = false;
+                foreach ($requestSalary as $field => $value) {
+                    if (!is_null($value) && (float) $value !== (float) ($designation->{$field} ?? 0)) {
+                        $hasOverride = true;
+                        break;
+                    }
+                }
+
+                if ($hasOverride) {
+                    $employee->salaryDetail()->create(array_merge(
+                        $requestSalary,
+                        [
+                            'designation_id' => $designation->id,
+                            'designation_name' => $designation->name,
+                            'effective_from' => $data['start_date'] ?? now()->toDateString(),
+                        ]
+                    ));
+                }
             }
         } catch (\Throwable $salError) {
             Log::warning('Failed to auto-create salary details from designation', [
@@ -408,12 +422,25 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employee->update($data);
 
-            // Upsert salary details (per-employee override of designation defaults)
+            // Upsert salary details — archive current and create new record
             if (! empty($salaryData)) {
-                $employee->salaryDetail()->updateOrCreate(
-                    ['employee_id' => $employee->id],
-                    $salaryData
-                );
+                $today = \Carbon\Carbon::today()->toDateString();
+                $currentDesignation = \App\Models\Designation::find($data['designation_id'] ?? $employee->designation_id);
+
+                // Close the currently active salary record
+                $employee->salaryDetail()
+                    ->whereNull('effective_to')
+                    ->update(['effective_to' => $today]);
+
+                // Create new salary record effective today
+                $employee->salaryDetail()->create(array_merge(
+                    $salaryData,
+                    [
+                        'designation_id' => $currentDesignation?->id,
+                        'designation_name' => $currentDesignation?->name,
+                        'effective_from' => $today,
+                    ]
+                ));
             }
 
             // Update associated user account & allowed geofences
@@ -536,6 +563,14 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employee->is_active = ! $employee->is_active;
             $employee->save();
+
+            // Sync linked user account status
+            if ($employee->user) {
+                $employee->user->update([
+                    'is_active' => $employee->is_active,
+                    'can_login' => $employee->is_active,
+                ]);
+            }
 
             $statusStr = $employee->is_active ? 'Activated' : 'Deactivated';
             $this->logActivity('TOGGLE_STATUS', 'Employee', "{$statusStr} employee: {$employee->full_name}");
@@ -823,7 +858,7 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employees = $query->select('id', 'full_name', 'employee_code', 'branch_id', 'department_id')
                 ->with(['branch:id,name', 'department:id,name'])
-                ->orderBy('full_name', 'asc')
+                ->orderBy(' ', 'asc')
                 ->get();
 
             return response()->json([

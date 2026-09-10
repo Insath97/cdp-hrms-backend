@@ -33,7 +33,7 @@ class PayrollService
                 [
                     'basic'        => $basic,
                     'allowances'   => $allowances,
-                    'deductions'   => 0,
+                    'total_deductions'   => 0,
                     'net'          => $gross - $epfEmployee,
                     'epf_employee' => $epfEmployee,
                     'epf_employer' => $epfEmployer,
@@ -47,7 +47,7 @@ class PayrollService
             $loanDeductionTotal = $this->applyActiveDeductions($user, $record->id, $month);
 
             // Recalculate net with all deductions applied
-            $record->deductions = $loanDeductionTotal;
+            $record->total_deductions = $loanDeductionTotal;
             $record->net        = $gross - $epfEmployee - $loanDeductionTotal;
             $record->save();
 
