@@ -11,6 +11,14 @@ return new class extends Migration
     {
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
 
+        // Drop existing FKs first to avoid duplicate constraint names
+        Schema::table('payroll_deductions', function (Blueprint $table) {
+            $table->dropForeign(['payroll_record_id']);
+        });
+        Schema::table('payslip_requests', function (Blueprint $table) {
+            $table->dropForeign(['payroll_record_id']);
+        });
+
         // Clear orphaned child rows
         DB::table('payroll_deductions')->truncate();
 
@@ -72,10 +80,10 @@ return new class extends Migration
 
         // Re-add FKs
         Schema::table('payroll_deductions', function (Blueprint $table) {
-            $table->foreign('payroll_record_id')->references('id')->on('payroll_records')->onDelete('cascade');
+            $table->foreign('payroll_record_id', 'fk_payroll_deductions_record_id')->references('id')->on('payroll_records')->onDelete('cascade');
         });
         Schema::table('payslip_requests', function (Blueprint $table) {
-            $table->foreign('payroll_record_id')->references('id')->on('payroll_records')->onDelete('set null');
+            $table->foreign('payroll_record_id', 'fk_payslip_requests_record_id')->references('id')->on('payroll_records')->onDelete('set null');
         });
 
         DB::statement('SET FOREIGN_KEY_CHECKS=1');
@@ -84,6 +92,13 @@ return new class extends Migration
     public function down(): void
     {
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+
+        Schema::table('payroll_deductions', function (Blueprint $table) {
+            $table->dropForeign(['payroll_record_id']);
+        });
+        Schema::table('payslip_requests', function (Blueprint $table) {
+            $table->dropForeign(['payroll_record_id']);
+        });
 
         Schema::dropIfExists('payroll_records');
 
@@ -107,10 +122,10 @@ return new class extends Migration
         });
 
         Schema::table('payroll_deductions', function (Blueprint $table) {
-            $table->foreign('payroll_record_id')->references('id')->on('payroll_records')->onDelete('cascade');
+            $table->foreign('payroll_record_id', 'fk_payroll_deductions_record_id')->references('id')->on('payroll_records')->onDelete('cascade');
         });
         Schema::table('payslip_requests', function (Blueprint $table) {
-            $table->foreign('payroll_record_id')->references('id')->on('payroll_records')->onDelete('set null');
+            $table->foreign('payroll_record_id', 'fk_payslip_requests_record_id')->references('id')->on('payroll_records')->onDelete('set null');
         });
 
         DB::statement('SET FOREIGN_KEY_CHECKS=1');
