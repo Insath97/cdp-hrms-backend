@@ -568,17 +568,16 @@ class PayrollController extends Controller implements HasMiddleware
             $mobilePayment = $getSalaryField('mobile_payment');
             $howMuchPaid = $calculatedPayment + $mobilePaymentBonus + $totalCommission;
 
-            // Deductions: EPF (8% of basic) + PAYE tax (taxable = basic - EPF) apply only to permanent staff.
+            // Deductions: EPF (8% of basic) + PAYE tax (on howMuchPaid) apply only to permanent staff.
             // CDP recover amount applies to everyone.
             $epfEmployee = 0.0;
             $incomeTax = 0.0;
             if ($isPermanent) {
                 $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
-                $taxableIncome = $calculatedPayment;
-                $incomeTax = SriLankanTaxService::paye($taxableIncome);
+                $incomeTax = SriLankanTaxService::paye($howMuchPaid);
                 \Log::info('Deductions', [
                     'epfEmployee' => $epfEmployee,
-                    'taxableIncome' => $taxableIncome,
+                    'howMuchPaid' => $howMuchPaid,
                     'incomeTax' => $incomeTax,
                 ]);
             }

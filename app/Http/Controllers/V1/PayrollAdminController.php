@@ -364,7 +364,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 $incomeTax = 0.0;
                 if ($isPermanent) {
                     $epfEmployee = SriLankanTaxService::epfEmployee($metrics['basic_salary']);
-                    $incomeTax = SriLankanTaxService::paye($metrics['basic_salary'] - $epfEmployee);
+                    $incomeTax = SriLankanTaxService::paye($metrics['how_much_paid']);
                 }
                 $metrics['epf'] = round($epfEmployee, 2);
                 $metrics['income_tax'] = round($incomeTax, 2);
@@ -1102,7 +1102,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                         $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
                         $epfEmployer = round($basicSalary * 0.12, 2);
                         $etfEmployer = round($basicSalary * 0.03, 2);
-                        $incomeTax = SriLankanTaxService::paye($basicSalary - $epfEmployee);
+                        $incomeTax = SriLankanTaxService::paye($howMuchPaid);
                     }
 
                     // Loan deductions
