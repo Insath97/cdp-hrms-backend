@@ -298,7 +298,6 @@ class EmployeeController extends Controller implements HasMiddleware
                     'user_id' => $user->id,
                     'geofence_id' => $gid,
                 ]);
-            }
                 $pivotData[$gid] = ['employee_id' => $employee->id];
             }
             $user->geofences()->syncWithoutDetaching($pivotData);
