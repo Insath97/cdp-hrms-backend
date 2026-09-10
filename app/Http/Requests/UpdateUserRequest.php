@@ -39,7 +39,7 @@ class UpdateUserRequest extends FormRequest
             'username' => 'sometimes|string|max:255|unique:users,username,' . $id,
             'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $id,
             'password' => 'sometimes|string|min:8',
-            'user_type' => 'sometimes|in:admin,staff',
+            'user_type' => 'sometimes|in:admin,staff,customer',
             'role' => 'sometimes|string|exists:roles,name',
 
             // Staff specific validation

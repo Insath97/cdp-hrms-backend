@@ -13,7 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
 
 class PayrollController extends Controller implements HasMiddleware
 {
@@ -222,20 +222,14 @@ class PayrollController extends Controller implements HasMiddleware
             // Get the file path from the database
             $filePath = $approvedRequest->signed_file_path;
 
-            // Try to get the file from storage
-            if (Storage::disk('public')->exists($filePath)) {
-                $file = Storage::disk('public')->get($filePath);
+            $fullPath = public_path($filePath);
+            if (File::exists($fullPath)) {
                 $filename = "payslip_{$payrollRecord->month}_{$user->name}.pdf";
+                $file = File::get($fullPath);
 
                 return response($file, 200)
                     ->header('Content-Type', 'application/pdf')
                     ->header('Content-Disposition', 'attachment; filename="'.$filename.'"');
-            }
-
-            // Alternative: Check full storage path
-            $fullPath = storage_path('app/public/'.$filePath);
-            if (file_exists($fullPath)) {
-                return response()->download($fullPath, "payslip_{$payrollRecord->month}_{$user->name}.pdf");
             }
 
             // If file not found, log error
@@ -283,18 +277,14 @@ class PayrollController extends Controller implements HasMiddleware
 
             $filePath = $request->signed_file_path;
 
-            if (Storage::disk('public')->exists($filePath)) {
-                $file = Storage::disk('public')->get($filePath);
+            $fullPath = public_path($filePath);
+            if (File::exists($fullPath)) {
                 $filename = "payslip_signed_{$user->name}.pdf";
+                $file = File::get($fullPath);
 
                 return response($file, 200)
                     ->header('Content-Type', 'application/pdf')
                     ->header('Content-Disposition', 'attachment; filename="'.$filename.'"');
-            }
-
-            $fullPath = storage_path('app/public/'.$filePath);
-            if (file_exists($fullPath)) {
-                return response()->download($fullPath, "payslip_signed_{$user->name}.pdf");
             }
 
             \Log::error('Signed payslip file not found', [

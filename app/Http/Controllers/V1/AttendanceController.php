@@ -12,6 +12,8 @@ use Carbon\Carbon;
 use App\Models\Attendance;
 use App\Models\User;
 use App\Models\Geofence;
+use App\Models\Leave;
+use App\Models\Holiday;
 use App\Http\Controllers\V1\GeofenceController;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -1519,6 +1521,14 @@ class AttendanceController extends Controller implements HasMiddleware
                 'requested_user_id' => $user_id,
                 'auth_user_id' => Auth::id(),
             ]);
+
+            // Full calendar mode: when year and month are provided, return all dates with status
+            $year = $request->input('year');
+            $month = $request->input('month');
+            if ($year && $month) {
+                return $this->userMonthlyCalendar($user_id, (int) $year, (int) $month, $request);
+            }
+
             $perPage = $request->get('per_page', 15);
             $query = Attendance::byUser($user_id);
 
@@ -1550,5 +1560,155 @@ class AttendanceController extends Controller implements HasMiddleware
                 'error' => $th->getMessage()
             ], 500);
         }
+    }
+
+    private function userMonthlyCalendar($user_id, int $year, int $month, Request $request)
+    {
+        $startOfMonth = Carbon::createFromDate($year, $month, 1)->startOfMonth()->toDateString();
+        $endOfMonth = Carbon::createFromDate($year, $month, 1)->endOfMonth()->toDateString();
+
+        // Fetch holidays for the month
+        $companyHolidays = Holiday::where('is_company_holiday', true)
+            ->whereBetween('date', [$startOfMonth, $endOfMonth])
+            ->pluck('date')
+            ->map(fn($d) => $d instanceof Carbon ? $d->toDateString() : $d)
+            ->toArray();
+
+        // Fetch approved leaves for this user in the month
+        $leaves = Leave::where('user_id', $user_id)
+            ->where('status', 'approved')
+            ->where('from_date', '<=', $endOfMonth)
+            ->where('to_date', '>=', $startOfMonth)
+            ->get(['from_date', 'to_date']);
+
+        // Build a set of leave dates
+        $leaveDates = [];
+        foreach ($leaves as $leave) {
+            $from = $leave->from_date instanceof Carbon ? $leave->from_date->toDateString() : Carbon::parse($leave->from_date)->toDateString();
+            $to = $leave->to_date instanceof Carbon ? $leave->to_date->toDateString() : Carbon::parse($leave->to_date)->toDateString();
+            $current = Carbon::parse($from);
+            $end = Carbon::parse($to);
+            while ($current->lte($end)) {
+                $leaveDates[] = $current->toDateString();
+                $current->addDay();
+            }
+        }
+        $leaveDates = array_unique($leaveDates);
+
+        // Fetch attendance records for this user in the month
+        $attendances = Attendance::byUser($user_id)
+            ->whereDate('date', '>=', $startOfMonth)
+            ->whereDate('date', '<=', $endOfMonth)
+            ->get()
+            ->keyBy(fn($item) => $item->date instanceof Carbon ? $item->date->toDateString() : $item->date);
+
+        // Generate all dates of the month
+        $monthDates = $this->getDateRange($startOfMonth, $endOfMonth);
+        $today = Carbon::today()->toDateString();
+        $calendar = [];
+
+        $presentCount = 0;
+        $absentCount = 0;
+        $lateCount = 0;
+        $leaveCount = 0;
+        $halfDayCount = 0;
+        $holidayCount = 0;
+        $weekendCount = 0;
+        $totalWorkingHours = 0;
+
+        foreach ($monthDates as $date) {
+            $carbonDate = Carbon::parse($date);
+            $dayOfWeek = $carbonDate->dayOfWeek; // 0=Sun, 6=Sat
+            $isWeekend = ($dayOfWeek === 0 || $dayOfWeek === 6);
+            $isFuture = $date > $today;
+
+            $dayStatus = '';
+            $attendance = $attendances->get($date);
+            $clockIn = null;
+            $clockOut = null;
+            $workingHours = 0;
+
+            // Determine status priority: weekend > holiday > leave > attendance record > absent
+            if ($isWeekend) {
+                $dayStatus = 'weekend';
+                $weekendCount++;
+            } elseif (in_array($date, $companyHolidays)) {
+                $dayStatus = 'holiday';
+                $holidayCount++;
+            } elseif (in_array($date, $leaveDates)) {
+                $dayStatus = 'leave';
+                $leaveCount++;
+            } elseif ($attendance) {
+                $rawStatus = $attendance->status ?? 'present';
+                $dayStatus = $rawStatus;
+
+                $clockIn = $attendance->getRawOriginal('clock_in');
+                $clockOut = $attendance->getRawOriginal('clock_out');
+                if ($clockIn && strpos($clockIn, ' ') !== false) {
+                    $clockIn = Carbon::parse($clockIn)->format('H:i:s');
+                }
+                if ($clockOut && strpos($clockOut, ' ') !== false) {
+                    $clockOut = Carbon::parse($clockOut)->format('H:i:s');
+                }
+                $workingHours = $attendance->working_hours ?? 0;
+
+                switch ($rawStatus) {
+                    case 'present':
+                        $presentCount++;
+                        break;
+                    case 'late':
+                        $lateCount++;
+                        break;
+                    case 'half_day':
+                        $halfDayCount++;
+                        break;
+                    default:
+                        $presentCount++;
+                }
+                $totalWorkingHours += (float) $workingHours;
+            } elseif ($isFuture) {
+                $dayStatus = 'future';
+            } else {
+                $dayStatus = 'absent';
+                $absentCount++;
+            }
+
+            $calendar[] = [
+                'date' => $date,
+                'day_name' => $carbonDate->format('D'),
+                'day_of_week' => $dayOfWeek,
+                'is_weekend' => $isWeekend,
+                'is_future' => $isFuture,
+                'is_today' => $date === $today,
+                'status' => $dayStatus,
+                'clock_in' => $clockIn,
+                'clock_out' => $clockOut,
+                'working_hours' => $clockIn ? $workingHours : 0,
+                'has_record' => $attendance !== null,
+            ];
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Monthly calendar retrieved successfully',
+            'data' => [
+                'year' => $year,
+                'month' => $month,
+                'total_days' => count($monthDates),
+                'start_of_month' => $startOfMonth,
+                'end_of_month' => $endOfMonth,
+                'summary' => [
+                    'present' => $presentCount,
+                    'absent' => $absentCount,
+                    'late' => $lateCount,
+                    'leave' => $leaveCount,
+                    'half_day' => $halfDayCount,
+                    'holiday' => $holidayCount,
+                    'weekend' => $weekendCount,
+                    'total_working_hours' => round($totalWorkingHours, 2),
+                ],
+                'calendar' => $calendar,
+            ],
+        ], 200);
     }
 }

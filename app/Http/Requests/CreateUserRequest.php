@@ -38,7 +38,7 @@ class CreateUserRequest extends FormRequest
             'username' => 'required|string|max:255|unique:users,username',
             'email' => 'sometimes|nullable|email|max:255|unique:users,email',
             'password' => 'required|string|min:8',
-            'user_type' => 'required|in:admin,staff',
+            'user_type' => 'required|in:admin,staff,customer',
             'role' => 'required|string|exists:roles,name',
 
             // Staff specific validation

@@ -10,7 +10,7 @@ use App\Models\User;
 use App\Services\CdpConnectService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -201,19 +201,17 @@ class PayrollAdminController extends Controller implements HasMiddleware
             // Generate PDF
             $pdf = Pdf::loadView('pdf.payslip', $data);
             
-            // Create directory if it doesn't exist
-            $directory = storage_path('app/public/payslips');
-            if (!file_exists($directory)) {
-                mkdir($directory, 0755, true);
+            // Save PDF to public/uploads/payslips (same pattern as FileUploadTrait)
+            $directory = 'uploads/payslips';
+            if (!File::exists(public_path($directory))) {
+                File::makeDirectory(public_path($directory), 0755, true);
             }
             
-            // Save PDF file - clean the month string to remove spaces
             $cleanMonth = str_replace(' ', '_', $period_label);
             $fileName = "signed_{$user->id}_{$payslipRequest->period}_{$cleanMonth}.pdf";
-            $filePath = "payslips/" . $fileName;
+            $filePath = "{$directory}/{$fileName}";
             
-            // Save the PDF using Storage facade
-            Storage::disk('public')->put($filePath, $pdf->output());
+            File::put(public_path($filePath), $pdf->output());
             
             // Update request with file path
             $payslipRequest->update([
