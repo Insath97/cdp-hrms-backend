@@ -141,8 +141,8 @@ class UserAllowedLocationController extends Controller implements HasMiddleware
         if ($allowedLocations->isEmpty()) {
             return response()->json([
                 'status' => 'success',
-                'within_allowed' => true,
-                'message' => 'No restricted locations assigned.',
+                'within_allowed' => false,
+                'message' => 'No allowed locations assigned. Please contact your administrator.',
                 'location' => null,
             ]);
         }

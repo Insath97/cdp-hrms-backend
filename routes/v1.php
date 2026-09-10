@@ -32,6 +32,10 @@ use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
 use App\Http\Controllers\V1\Admin\AbsentMarkingController;
 use App\Http\Controllers\V1\GeofenceController;
 use App\Http\Controllers\V1\UserAllowedLocationController;
+use App\Http\Controllers\V1\LoanController;
+use App\Http\Controllers\V1\EmployeeSalaryController;
+use App\Http\Controllers\V1\PayrollDeductionController;
+use App\Http\Controllers\V1\WeekendHolidayWorkController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -118,6 +122,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('report/monthly', [AttendanceController::class, 'monthlyReport']);
         Route::post('clock-out', [AttendanceController::class, 'clockOut']);
         Route::delete('delete/{id}', [AttendanceController::class, 'destroy']);
+        Route::delete('{id}/force-delete', [AttendanceController::class, 'forceDelete']);
+        Route::delete('force-delete/{id}', [AttendanceController::class, 'forceDelete']);
+        Route::post('{id}/restore', [AttendanceController::class, 'restore']);
+        Route::post('restore/{id}', [AttendanceController::class, 'restore']);
         Route::post('process-rules', [AttendanceController::class, 'processRules']);
         Route::get('with-rules', [AttendanceController::class, 'getAttendanceWithRules']);
 
@@ -129,6 +137,8 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
     });
     Route::put('attendances', [AttendanceController::class, 'update']);
+    Route::post('attendances/{id}/restore', [AttendanceController::class, 'restore']);
+    Route::delete('attendances/{id}/force-delete', [AttendanceController::class, 'forceDelete']);
     Route::apiResource('attendances', AttendanceController::class);
 
     Route::prefix('attendance-settings')->group(function () {
@@ -143,6 +153,15 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('/', [HolidayController::class, 'index']);
         Route::post('/', [HolidayController::class, 'store']);
         Route::post('/sync', [HolidayController::class, 'sync']);
+    });
+
+    Route::prefix('weekend-holiday-works')->group(function () {
+        Route::get('/', [WeekendHolidayWorkController::class, 'index']);
+        Route::post('/', [WeekendHolidayWorkController::class, 'store']);
+        Route::get('check-date', [WeekendHolidayWorkController::class, 'checkDate']);
+        Route::get('{id}', [WeekendHolidayWorkController::class, 'show']);
+        Route::put('{id}', [WeekendHolidayWorkController::class, 'update']);
+        Route::delete('{id}', [WeekendHolidayWorkController::class, 'destroy']);
     });
 
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
@@ -222,16 +241,27 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // HR Admin routes
     Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
         Route::get('/payroll', [PayrollAdminController::class, 'getAllPayrolls']);
-        Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
-        Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
-        Route::post('/payroll/{id}/process', [PayrollAdminController::class, 'processPayroll']);
 
+        Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
+
+        // Payroll Deductions (must be before {id} routes to avoid conflicts)
+        Route::get('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'index']);
+        Route::post('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'store']);
+        Route::delete('/payroll/{payrollRecordId}/deductions/{deductionId}', [PayrollDeductionController::class, 'destroy']);
+
+        Route::get('/payroll/requests', [PayrollAdminController::class, 'allRequests']);
         Route::get('/payroll/requests/pending', [PayrollAdminController::class, 'pendingRequests']);
         Route::post('/payroll/requests/{payslipRequest}/approve', [PayrollAdminController::class, 'approveRequest']);
         Route::post('/payroll/requests/{payslipRequest}/reject', [PayrollAdminController::class, 'rejectRequest']);
 
+        // Payroll month activation (must be before {id} routes to avoid conflicts)
+        Route::get('/payroll/month-status', [PayrollAdminController::class, 'getMonthStatus']);
+        Route::post('/payroll/months/activate', [PayrollAdminController::class, 'activateMonth']);
+        Route::post('/payroll/months/lock', [PayrollAdminController::class, 'lockMonth']);
 
-        Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
+        Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
+        Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
+        Route::post('/payroll/{id}/process', [PayrollAdminController::class, 'processPayroll']);
 
         Route::get('/password-change-requests', [PasswordChangeRequestController::class, 'index']);
         Route::post('/password-change-requests/{id}/approve', [PasswordChangeRequestController::class, 'approve']);
@@ -263,4 +293,13 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
         Route::delete('/{id}', [NotificationController::class, 'destroy']);
     });
+
+    // Loans
+    Route::apiResource('loans', LoanController::class);
+    Route::get('loans/employee/{employeeId}', [LoanController::class, 'getByEmployee']);
+
+    // Employee Salary Details
+    Route::get('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'show']);
+    Route::put('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'upsert']);
+    Route::delete('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'destroy']);
 });

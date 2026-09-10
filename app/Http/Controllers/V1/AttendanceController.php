@@ -28,7 +28,7 @@ class AttendanceController extends Controller implements HasMiddleware
             new Middleware('permission:Attendance Index', only: ['index', 'show']),
             new Middleware('permission:Attendance Create', only: ['store']),
             new Middleware('permission:Attendance Update', only: ['update', 'clockOut']),
-            new Middleware('permission:Attendance Delete', only: ['destroy']),
+            new Middleware('permission:Attendance Delete', only: ['destroy', 'forceDelete', 'restore']),
             new Middleware('permission:Attendance Report', only: ['dailyReport', 'weeklyReport', 'monthlyReport']),
         ];
     }
@@ -41,6 +41,12 @@ class AttendanceController extends Controller implements HasMiddleware
         try {
             $perPage = $request->get('per_page', 15);
             $query = Attendance::query();
+
+            if ($request->boolean('only_trashed')) {
+                $query->onlyTrashed();
+            } elseif ($request->boolean('with_trashed')) {
+                $query->withTrashed();
+            }
 
             if ($request->has('search')) {
                 $query->search($request->search);
@@ -124,56 +130,51 @@ class AttendanceController extends Controller implements HasMiddleware
                 }
             }
 
-            // Geofence check for clock-in
+            // Geofence / allowed-location check for clock-in
             if (isset($data['clock_in']) && !isset($data['clock_out'])) {
                 $latitude = $request->input('latitude');
                 $longitude = $request->input('longitude');
 
-                if ($latitude !== null && $longitude !== null) {
-                    $userForCheck = isset($user) ? $user : User::find($data['user_id']);
+                if ($latitude === null || $longitude === null) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Your location could not be verified. Please enable location services to clock in.',
+                    ], 403);
+                }
 
-                    // 1. Check assigned geofences
-                    $matchedGeofence = GeofenceController::checkCoordinates($latitude, $longitude, $userForCheck);
-                    if ($matchedGeofence) {
+                $userForCheck = isset($user) ? $user : User::find($data['user_id']);
+
+                $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+                if (!$allowedLocations || $allowedLocations->isEmpty()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'No allowed locations assigned. Please contact your administrator.',
+                    ], 403);
+                }
+
+                foreach ($allowedLocations as $loc) {
+                    $gf = $loc->geofence;
+                    if (!$gf || !$gf->is_active) continue;
+                    $dist = GeofenceController::haversineDistance(
+                        (float) $latitude,
+                        (float) $longitude,
+                        (float) $gf->latitude,
+                        (float) $gf->longitude
+                    );
+                    if ($dist <= (float) $gf->radius_meters) {
                         $data['in_latitude'] = $latitude;
                         $data['in_longitude'] = $longitude;
-                        $data['in_geofence_name'] = $matchedGeofence->name;
-                    } else {
-                        $assignedGeofenceCount = $userForCheck?->geofences()->where('is_active', true)->count() ?? 0;
-                        if ($assignedGeofenceCount > 0) {
-                            return response()->json([
-                                'status' => 'error',
-                                'message' => 'You are outside your assigned attendance zone. Please move to an approved location.',
-                            ], 403);
-                        }
+                        $data['in_geofence_name'] = $gf->name;
+                        break;
                     }
+                }
 
-                    // 2. Check user-specific allowed locations (only if geofence didn't match and user has no geofences)
-                    $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
-                    if ($allowedLocations && $allowedLocations->isNotEmpty()) {
-                        foreach ($allowedLocations as $loc) {
-                            $gf = $loc->geofence;
-                            if (!$gf || !$gf->is_active) continue;
-                            $dist = GeofenceController::haversineDistance(
-                                (float) $latitude,
-                                (float) $longitude,
-                                (float) $gf->latitude,
-                                (float) $gf->longitude
-                            );
-                            if ($dist <= (float) $gf->radius_meters) {
-                                $data['in_latitude'] = $latitude;
-                                $data['in_longitude'] = $longitude;
-                                $data['in_geofence_name'] = $gf->name;
-                                break;
-                            }
-                        }
-                        if (!isset($data['in_geofence_name'])) {
-                            return response()->json([
-                                'status' => 'error',
-                                'message' => 'You are outside your allowed locations. Please move to an approved area.',
-                            ], 403);
-                        }
-                    }
+                if (!isset($data['in_geofence_name'])) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'You are outside your allowed locations. Please move to an approved area.',
+                    ], 403);
                 }
             }
 
@@ -580,52 +581,48 @@ class AttendanceController extends Controller implements HasMiddleware
             // Store full datetime
             $attendance->clock_out = $clockOutDateTime;
 
-            // Geofence check for clock-out
+            // Geofence / allowed-location check for clock-out
             $latitude = $request->input('latitude');
             $longitude = $request->input('longitude');
 
-            if ($latitude !== null && $longitude !== null) {
-                $matchedGeofence = GeofenceController::checkCoordinates($latitude, $longitude, $user);
-                if ($matchedGeofence) {
+            if ($latitude === null || $longitude === null) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Your location could not be verified. Please enable location services to clock out.',
+                ], 403);
+            }
+
+            $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+            if ($allowedLocations->isEmpty()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No allowed locations assigned. Please contact your administrator.',
+                ], 403);
+            }
+
+            foreach ($allowedLocations as $loc) {
+                $gf = $loc->geofence;
+                if (!$gf || !$gf->is_active) continue;
+                $dist = GeofenceController::haversineDistance(
+                    (float) $latitude,
+                    (float) $longitude,
+                    (float) $gf->latitude,
+                    (float) $gf->longitude
+                );
+                if ($dist <= (float) $gf->radius_meters) {
                     $attendance->out_latitude = $latitude;
                     $attendance->out_longitude = $longitude;
-                    $attendance->out_geofence_name = $matchedGeofence->name;
-                } else {
-                    $assignedCount = $user->geofences()->where('is_active', true)->count();
-                    if ($assignedCount > 0) {
-                        return response()->json([
-                            'status' => 'error',
-                            'message' => 'You are outside your assigned attendance zone. Please move to an approved location to clock out.',
-                        ], 403);
-                    }
-
-                    // Fallback: check user-specific allowed locations
-                    $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
-                    if ($allowedLocations->isNotEmpty()) {
-                        foreach ($allowedLocations as $loc) {
-                            $gf = $loc->geofence;
-                            if (!$gf || !$gf->is_active) continue;
-                            $dist = GeofenceController::haversineDistance(
-                                (float) $latitude,
-                                (float) $longitude,
-                                (float) $gf->latitude,
-                                (float) $gf->longitude
-                            );
-                            if ($dist <= (float) $gf->radius_meters) {
-                                $attendance->out_latitude = $latitude;
-                                $attendance->out_longitude = $longitude;
-                                $attendance->out_geofence_name = $gf->name;
-                                break;
-                            }
-                        }
-                        if (!$attendance->out_geofence_name) {
-                            return response()->json([
-                                'status' => 'error',
-                                'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
-                            ], 403);
-                        }
-                    }
+                    $attendance->out_geofence_name = $gf->name;
+                    break;
                 }
+            }
+
+            if (!$attendance->out_geofence_name) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
+                ], 403);
             }
 
             // Capture out IP Address
@@ -678,7 +675,7 @@ class AttendanceController extends Controller implements HasMiddleware
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Remove the specified resource from storage (Soft Delete).
      */
     public function destroy(string $id)
     {
@@ -694,9 +691,9 @@ class AttendanceController extends Controller implements HasMiddleware
 
             $attendance->delete();
 
-            $this->logActivity('DELETE', 'Attendance', "Deleted attendance record (ID: {$attendance->id})");
+            $this->logActivity('DELETE', 'Attendance', "Soft deleted attendance record (ID: {$attendance->id})");
 
-            Log::info('Attendance deleted', [
+            Log::info('Attendance soft deleted', [
                 'user_id' => Auth::id(),
                 'attendance_id' => $id,
             ]);
@@ -714,6 +711,98 @@ class AttendanceController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to delete attendance',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Permanently remove the specified attendance resource from storage.
+     */
+    public function forceDelete(string $id)
+    {
+        try {
+            $attendance = Attendance::withTrashed()->find($id);
+
+            if (!$attendance) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Attendance not found'
+                ], 404);
+            }
+
+            $attendance->forceDelete();
+
+            $this->logActivity('FORCE_DELETE', 'Attendance', "Permanently deleted attendance record (ID: {$id})");
+
+            Log::info('Attendance permanently deleted', [
+                'user_id' => Auth::id(),
+                'attendance_id' => $id,
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Attendance permanently deleted',
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to force delete attendance', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to force delete attendance',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Restore the specified soft-deleted attendance resource.
+     */
+    public function restore(string $id)
+    {
+        try {
+            $attendance = Attendance::withTrashed()->find($id);
+
+            if (!$attendance) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Attendance not found'
+                ], 404);
+            }
+
+            if (!$attendance->trashed()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Attendance is not deleted'
+                ], 422);
+            }
+
+            $attendance->restore();
+
+            $this->logActivity('RESTORE', 'Attendance', "Restored attendance record (ID: {$attendance->id})");
+
+            Log::info('Attendance restored', [
+                'user_id' => Auth::id(),
+                'attendance_id' => $id,
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Attendance restored successfully',
+                'data' => $attendance,
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to restore attendance', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to restore attendance',
                 'error' => $th->getMessage()
             ], 500);
         }

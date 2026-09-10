@@ -33,7 +33,10 @@
 
     <div class="employee-info">
         <strong>{{ $user->name }}</strong><br>
-        Employee ID: <span class="badge">{{ $user->employee_id ?? 'N/A' }}</span><br>
+        Employee ID: <span class="badge">{{ isset($metrics['employee_code']) && $metrics['employee_code'] ? $metrics['employee_code'] : ($user->employee_id ?? 'N/A') }}</span><br>
+        @if(isset($metrics['employee_type']) && $metrics['employee_type'])
+        Employee Type: <span class="badge">{{ strtoupper(str_replace('_', ' ', $metrics['employee_type'])) }}</span><br>
+        @endif
         Period: {{ $period_label }}
     </div>
 
@@ -78,12 +81,41 @@
             @if(isset($metrics['total_commission']) && $metrics['total_commission'] > 0)
             <tr><td class="label">Commission</td><td class="value">+ LKR {{ number_format($metrics['total_commission'], 2) }}</td></tr>
             @endif
-            <tr class="total-row"><td>Full Payment</td><td class="value">LKR {{ number_format($metrics['calculated_payment'] + ($metrics['total_commission'] ?? 0), 2) }}</td></tr>
+            <tr class="total-row"><td>Gross Pay</td><td class="value">LKR {{ number_format($metrics['how_much_paid'] ?? 0, 2) }}</td></tr>
+        </table>
+    </div>
+
+    @if(($metrics['total_deductions'] ?? 0) > 0)
+    <div class="section">
+        <div class="section-title">Deductions</div>
+        <table>
+            @if(($metrics['epf'] ?? 0) > 0)
+            <tr><td class="label">EPF (Employee 8%)</td><td class="value">LKR {{ number_format($metrics['epf'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['income_tax'] ?? 0) > 0)
+            <tr><td class="label">Income Tax (PAYE)</td><td class="value">LKR {{ number_format($metrics['income_tax'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['recover_amount'] ?? 0) > 0)
+            <tr><td class="label">Recover Amount (CDP)</td><td class="value">LKR {{ number_format($metrics['recover_amount'], 2) }}</td></tr>
+            @endif
+            @if(!empty($metrics['loan_deductions']))
+            @foreach($metrics['loan_deductions'] as $ld)
+            <tr><td class="label">{{ $ld['label'] }}</td><td class="value">LKR {{ number_format($ld['amount'], 2) }}</td></tr>
+            @endforeach
+            @endif
+            <tr class="total-row"><td>Total Deductions</td><td class="value">LKR {{ number_format($metrics['total_deductions'], 2) }}</td></tr>
         </table>
     </div>
     @endif
 
-    @if(isset($payroll) && $payroll->basic > 0)
+    <div class="section">
+        <table>
+            <tr class="total-row"><td><strong>Net Pay</strong></td><td class="value"><strong>LKR {{ number_format(($metrics['how_much_paid'] ?? 0) + ($metrics['total_commission'] ?? 0) - ($metrics['total_deductions'] ?? 0), 2) }}</strong></td></tr>
+        </table>
+    </div>
+    @endif
+
+    @if(!isset($metrics) && isset($payroll) && $payroll->basic > 0)
     <div class="section">
         <div class="section-title">Earnings</div>
         <table>

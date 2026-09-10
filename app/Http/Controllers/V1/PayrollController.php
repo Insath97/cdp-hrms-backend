@@ -9,6 +9,9 @@ use App\Models\PayrollRecord;
 use App\Models\PayslipRequest;
 use App\Models\Employee;
 use App\Services\CdpConnectService;
+use App\Services\LoanDeductionService;
+use App\Services\PayrollActivationService;
+use App\Services\SriLankanTaxService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -41,6 +44,18 @@ class PayrollController extends Controller implements HasMiddleware
             }
 
             $payrollRecords = $query->get();
+
+            // Employees can only see payroll for activated months
+            if (! Auth::user()->can(PayrollActivationService::MANAGE_PERMISSION)) {
+                $activeMonths = \App\Models\PayrollMonth::where('status', '!=', 'inactive')
+                    ->pluck('month')
+                    ->all();
+
+                $payrollRecords = $payrollRecords->filter(function ($record) use ($activeMonths) {
+                    $normalized = PayrollActivationService::normalizeMonth($record->month);
+                    return $normalized !== null && in_array($normalized, $activeMonths, true);
+                })->values();
+            }
 
             // Get current month (first record)
             $currentMonth = $payrollRecords->first();
@@ -321,6 +336,14 @@ class PayrollController extends Controller implements HasMiddleware
 
             $user = Auth::user();
 
+            // Can only request a payslip for a month that has been activated
+            if (! PayrollActivationService::canView($request->period, $user)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Payroll for this month has not been activated yet.',
+                ], 403);
+            }
+
             $payslipRequest = PayslipRequest::create([
                 'user_id' => $user->id,
                 'employee_id' => $user->employee_id,
@@ -360,7 +383,22 @@ class PayrollController extends Controller implements HasMiddleware
                 ], 400);
             }
 
-            $payslipRequest = PayslipRequest::where('user_id', Auth::id())
+            $user = Auth::user();
+            $userId = $user->id;
+
+            // Allow admins to look up another user's request (e.g. when viewing an employee's payroll details)
+            $requestedUserId = $request->query('user_id');
+            if ($requestedUserId) {
+                $isAdmin = in_array($user->user_type, ['admin', 'development_admin'], true)
+                    || $user->hasRole('Super Admin')
+                    || $user->roles->pluck('name')->contains(fn ($roleName) => stripos($roleName, 'admin') !== false);
+
+                if ($isAdmin) {
+                    $userId = (int) $requestedUserId;
+                }
+            }
+
+            $payslipRequest = PayslipRequest::where('user_id', $userId)
                 ->where('period', $period)
                 ->with('approver')
                 ->first();
@@ -395,7 +433,7 @@ class PayrollController extends Controller implements HasMiddleware
                 ], 400);
             }
 
-            $employee = Employee::with('designation')->find($employeeId);
+            $employee = Employee::with(['designation', 'salaryDetail'])->find($employeeId);
 
             if (! $employee) {
                 return response()->json([
@@ -405,10 +443,28 @@ class PayrollController extends Controller implements HasMiddleware
             }
 
             $designation = $employee->designation;
-            $totalPackage = $designation ? (float) ($designation->total_package ?? 0) : 0.0;
+            $salaryOverride = $employee->salaryDetail;
+
+            // Use employee salary override if present, otherwise fall back to designation
+            $getSalaryField = function ($field) use ($salaryOverride, $designation) {
+                if ($salaryOverride && ! is_null($salaryOverride->{$field})) {
+                    return (float) $salaryOverride->{$field};
+                }
+                return $designation ? (float) ($designation->{$field} ?? 0) : 0.0;
+            };
+
+            $totalPackage = $getSalaryField('total_package');
 
             // Fetch metrics from external API service
             $period = $request->get('period_key', now()->format('Y-m'));
+
+            // Payroll for a month is only visible after HR activates it
+            if (! PayrollActivationService::canView($period, Auth::user())) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Payroll for this month has not been activated yet.',
+                ], 403);
+            }
 
             $achievement = null;
             $metricsNotFound = true;
@@ -423,16 +479,16 @@ class PayrollController extends Controller implements HasMiddleware
                 $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
 
                 \Log::info('CDP User Response', [
-        'employee_code' => $employee->employee_code,
-        'period' => $period,
-        'cdpUser' => $cdpUser,
-        'has_metrics' => isset($cdpUser['metrics']),
-        'metrics_value' => $cdpUser['metrics'] ?? null,
-    ]);
-    
+                    'employee_code' => $employee->employee_code,
+                    'period' => $period,
+                    'cdpUser' => $cdpUser,
+                    'has_metrics' => isset($cdpUser['metrics']),
+                    'metrics_value' => $cdpUser['metrics'] ?? null,
+                ]);
+
                 if ($cdpUser && isset($cdpUser['metrics'])) {
                     $metrics = $cdpUser['metrics'];
-                    
+
                     $commission = (float) ($metrics['commission'] ?? 0.0);
                     $overrideCommission = (float) ($metrics['override_commission'] ?? 0.0);
                     $totalCommission = (float) ($metrics['total_commission'] ?? 0.0);
@@ -466,16 +522,17 @@ class PayrollController extends Controller implements HasMiddleware
             }
 
             // Boundary logic:
-            // Below 50% -> No (0%)
+            // Below 50% -> No (0%), except permanent staff get basic_salary floor
             // 50% - 65% -> 50% Total Package
             // >65% - 90% -> 75% Total Package
             // Over 90% -> 100% Total Package + Mobile Payment
             $paymentPercentage = 0;
             $paymentCriteria = 'No';
+            $isPermanent = ($employee->employee_type === 'permanent');
 
             if ($achievement < 50) {
                 $paymentPercentage = 0;
-                $paymentCriteria = 'No';
+                $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
             } elseif ($achievement >= 50 && $achievement <= 65) {
                 $paymentPercentage = 50;
                 $paymentCriteria = '50% Total Package';
@@ -489,28 +546,59 @@ class PayrollController extends Controller implements HasMiddleware
 
             $calculatedPayment = ($paymentPercentage / 100) * $totalPackage;
 
+            // Permanent staff always receive basic salary floor even when <50% achievement
+            $basicSalary = $getSalaryField('basic_salary');
+            if ($achievement < 50 && $isPermanent) {
+                $calculatedPayment = $basicSalary;
+            }
+
             // For >90% achievement, add mobile_payment as bonus on top of full package
             $mobilePaymentBonus = 0.0;
             if ($achievement > 90) {
                 $calculatedPayment = $totalPackage;
-                $mobilePaymentBonus = $designation ? (float) ($designation->mobile_payment ?? 0) : 0.0;
+                $mobilePaymentBonus = $getSalaryField('mobile_payment');
             }
 
-            $monthlyTarget = $designation ? (float) ($designation->monthly_target ?? 0) : 0.0;
-            $basicSalary = $designation ? (float) ($designation->basic_salary ?? 0) : 0.0;
-            $travelReimbursement = $designation ? (float) ($designation->travel_reimbursement ?? 0) : 0.0;
-            $vehicleAllowance = $designation ? (float) ($designation->vehicle_rental ?? 0) : 0.0;
-            $performanceAllowance = $designation ? (float) ($designation->performance_allowance ?? 0) : 0.0;
-            $incentive = $designation ? (float) ($designation->incentive ?? 0) : 0.0;
-            $positionAllowance = $designation ? (float) ($designation->position_allowance ?? 0) : 0.0;
-            $mobilePayment = $designation ? (float) ($designation->mobile_payment ?? 0) : 0.0;
+            $monthlyTarget = $getSalaryField('monthly_target');
+            $travelReimbursement = $getSalaryField('travel_reimbursement');
+            $vehicleAllowance = $getSalaryField('vehicle_rental');
+            $performanceAllowance = $getSalaryField('performance_allowance');
+            $incentive = $getSalaryField('incentive');
+            $positionAllowance = $getSalaryField('position_allowance');
+            $mobilePayment = $getSalaryField('mobile_payment');
             $howMuchPaid = $calculatedPayment + $mobilePaymentBonus;
+
+            // Deductions: EPF (8% of basic) + PAYE tax (taxable = basic - EPF) apply only to permanent staff.
+            // CDP recover amount applies to everyone.
+            $epfEmployee = 0.0;
+            $incomeTax = 0.0;
+            if ($isPermanent) {
+                $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
+                $taxableIncome = $basicSalary - $epfEmployee;
+                $incomeTax = SriLankanTaxService::paye($taxableIncome);
+                \Log::info('Deductions', [
+                    'epfEmployee' => $epfEmployee,
+                    'taxableIncome' => $taxableIncome,
+                    'incomeTax' => $incomeTax,
+                ]);
+            }
+
+            // ── Active Loan / Advance / Custom Deductions ──────────────────────
+            // Sum monthly installments from the loans table that apply to this period
+            $loanDeductions = LoanDeductionService::activeForPeriod($employee->id, $period);
+            $loanDeductionItems  = $loanDeductions['items'];
+            $loanDeductionsTotal = $loanDeductions['total'];
+
+            $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount + $loanDeductionsTotal, 2);
+            $netPay = round($howMuchPaid - $totalDeductions, 2);
+
             return response()->json([
                 'status' => 'success',
                 'data' => [
                     'employee_id' => $employee->id,
                     'employee_code' => $employee->employee_code,
                     'full_name' => $employee->full_name,
+                    'employee_type' => $employee->employee_type,
                     'designation_id' => $employee->designation_id,
                     'designation_name' => $designation ? $designation->name : null,
                     'basic_salary' => $basicSalary,
@@ -534,6 +622,12 @@ class PayrollController extends Controller implements HasMiddleware
                     'target_amount' => $targetAmount,
                     'achievement_amount' => $achievementAmount,
                     'recover_amount' => $recoverAmount,
+                    'epf' => $epfEmployee,
+                    'income_tax' => $incomeTax,
+                    'loan_deductions' => $loanDeductionItems,
+                    'loan_deductions_total' => round($loanDeductionsTotal, 2),
+                    'total_deductions' => $totalDeductions,
+                    'net_pay' => $netPay,
                     'period' => $period,
                     'metrics_found' => ! $metricsNotFound,
                 ],
