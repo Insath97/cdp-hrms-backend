@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class PayrollRecord extends Model
 {
     protected $fillable = [
-        'user_id', 'employee_id', 'designation_id', 'designation_name', 'month',
+        'user_id', 'employee_id', 'designation_id', 'designation_name', 'month', 'pay_day',
         'basic', 'allowances', 'travel_reimbursement', 'vehicle_rental',
         'performance_allowance', 'incentive', 'position_allowance',
         'mobile_payment', 'monthly_target', 'total_package',
@@ -16,8 +16,8 @@ class PayrollRecord extends Model
         'commission', 'override_commission', 'total_commission',
         'how_much_paid',
         'epf_employee', 'epf_employer', 'etf_employer',
-        'paye_tax', 'wht_tax', 'recover_amount', 'loan_deductions', 'advance_deductions',
-        'total_deductions', 'net',
+        'paye_tax', 'apiit_tax', 'wht_tax', 'recover_amount', 'loan_deductions', 'advance_deductions',
+        'stamp_fee', 'total_deductions', 'net',
         'status', 'file_path', 'processed_at',
     ];
 
@@ -44,10 +44,12 @@ class PayrollRecord extends Model
         'epf_employer' => 'decimal:2',
         'etf_employer' => 'decimal:2',
         'paye_tax' => 'decimal:2',
+        'apiit_tax' => 'decimal:2',
         'wht_tax' => 'decimal:2',
         'recover_amount' => 'decimal:2',
         'loan_deductions' => 'decimal:2',
         'advance_deductions' => 'decimal:2',
+        'stamp_fee' => 'decimal:2',
         'total_deductions' => 'decimal:2',
         'net' => 'decimal:2',
         'processed_at' => 'datetime',

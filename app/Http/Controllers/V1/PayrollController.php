@@ -600,6 +600,34 @@ class PayrollController extends Controller implements HasMiddleware
             $totalDeductions = round($totalDeductions + $whtTax, 2);
             $netPay = round($howMuchPaid - $totalDeductions, 2);
 
+            // ── Stored 3-payment records (5th/15th/20th) ─────────────────────
+            // When present, they are the source of truth for display.
+            $linkedUserId = $employee->user()?->value('id');
+            $payrollRecords = \App\Models\PayrollRecord::where('user_id', $linkedUserId)
+                ->where('month', $period)
+                ->orderBy('pay_day')
+                ->get()
+                ->map(function ($rec) {
+                    $rec->makeHidden(['file_path']);
+                    return $rec;
+                });
+
+            if ($payrollRecords->isNotEmpty()) {
+                $howMuchPaid   = round($payrollRecords->sum('how_much_paid'), 2);
+                $epfEmployee   = round($payrollRecords->sum('epf_employee'), 2);
+                $incomeTax     = round($payrollRecords->sum('paye_tax'), 2);
+                $whtTax        = round($payrollRecords->sum('wht_tax'), 2);
+                $apiitTax      = round($payrollRecords->sum('apiit_tax'), 2);
+                $stampFee      = round($payrollRecords->sum('stamp_fee'), 2);
+                $recoverAmount = round($payrollRecords->sum('recover_amount'), 2);
+                $totalDeductions = round($payrollRecords->sum('total_deductions'), 2);
+                $netPay        = round($payrollRecords->sum('net'), 2);
+            } else {
+                $apiitTax = 0.0;
+                $stampFee = 0.0;
+                $payrollRecords = collect();
+            }
+
             return response()->json([
                 'status' => 'success',
                 'data' => [
@@ -633,12 +661,15 @@ class PayrollController extends Controller implements HasMiddleware
                     'epf' => $epfEmployee,
                     'income_tax' => $incomeTax,
                     'wht_tax' => $whtTax,
+                    'apiit_tax' => $apiitTax,
+                    'stamp_fee' => $stampFee,
                     'loan_deductions' => $loanDeductionItems,
                     'loan_deductions_total' => round($loanDeductionsTotal, 2),
                     'total_deductions' => $totalDeductions,
                     'net_pay' => $netPay,
                     'period' => $period,
                     'metrics_found' => ! $metricsNotFound,
+                    'payroll_records' => $payrollRecords->values(),
                 ],
             ]);
 

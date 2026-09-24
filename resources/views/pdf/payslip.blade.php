@@ -75,6 +75,70 @@
         </table>
     </div>
 
+    @if(isset($metrics['payroll_records']) && count($metrics['payroll_records']) > 0)
+    <div class="section">
+        <div class="section-title">Payment Schedule (5th / 15th / 20th)</div>
+        @php
+            $dayLabels = ['basic' => '5th — Basic', 'commission' => '15th — Commission', 'allowance' => '20th — Allowance'];
+        @endphp
+        @foreach($metrics['payroll_records'] as $rec)
+        <table>
+            <tr class="total-row"><td>{{ ($dayLabels[$rec->pay_day] ?? ucfirst($rec->pay_day)) }} ({{ \Illuminate\Support\Str::upper($rec->status) }})</td><td class="value"></td></tr>
+            @if((float) $rec->basic > 0)
+            <tr><td class="label">Basic Salary</td><td class="value">LKR {{ number_format($rec->basic, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->travel_reimbursement > 0)
+            <tr><td class="label">Travel Reimbursement (Fuel)</td><td class="value">LKR {{ number_format($rec->travel_reimbursement, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->vehicle_rental > 0)
+            <tr><td class="label">Vehicle Allowance</td><td class="value">LKR {{ number_format($rec->vehicle_rental, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->incentive > 0)
+            <tr><td class="label">Incentive</td><td class="value">LKR {{ number_format($rec->incentive, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->performance_allowance > 0)
+            <tr><td class="label">Performance Allowance</td><td class="value">LKR {{ number_format($rec->performance_allowance, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->position_allowance > 0)
+            <tr><td class="label">Position Allowance</td><td class="value">LKR {{ number_format($rec->position_allowance, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->mobile_payment > 0)
+            <tr><td class="label">Mobile Payment</td><td class="value">LKR {{ number_format($rec->mobile_payment, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->commission > 0)
+            <tr><td class="label">Commission</td><td class="value">LKR {{ number_format($rec->commission, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->override_commission > 0)
+            <tr><td class="label">Override Commission</td><td class="value">LKR {{ number_format($rec->override_commission, 2) }}</td></tr>
+            @endif
+            <tr class="total-row"><td>Gross (this payment)</td><td class="value">LKR {{ number_format($rec->how_much_paid, 2) }}</td></tr>
+            @if((float) $rec->epf_employee > 0)
+            <tr><td class="label">EPF (Employee 8%)</td><td class="value">- LKR {{ number_format($rec->epf_employee, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->paye_tax > 0)
+            <tr><td class="label">PAYE Income Tax</td><td class="value">- LKR {{ number_format($rec->paye_tax, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->wht_tax > 0)
+            <tr><td class="label">WHT (Withholding Tax 5%)</td><td class="value">- LKR {{ number_format($rec->wht_tax, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->apiit_tax > 0)
+            <tr><td class="label">APIT (Advance Income Tax)</td><td class="value">- LKR {{ number_format($rec->apiit_tax, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->stamp_fee > 0)
+            <tr><td class="label">Stamp Fee</td><td class="value">- LKR {{ number_format($rec->stamp_fee, 2) }}</td></tr>
+            @endif
+            @if((float) $rec->total_deductions > 0)
+            <tr><td class="label">Total Deductions (this payment)</td><td class="value">- LKR {{ number_format($rec->total_deductions, 2) }}</td></tr>
+            @endif
+            <tr><td class="label">Net (this payment)</td><td class="value">LKR {{ number_format($rec->net, 2) }}</td></tr>
+        </table>
+        @endforeach
+        <table>
+            <tr class="total-row"><td><strong>Total Gross Pay (Month)</strong></td><td class="value">LKR {{ number_format($metrics['how_much_paid'], 2) }}</td></tr>
+            <tr class="total-row"><td><strong>Total Net Pay (Month)</strong></td><td class="value"><strong>LKR {{ number_format($metrics['net_pay'], 2) }}</strong></td></tr>
+        </table>
+    </div>
+    @else
     <div class="section">
         <div class="section-title">Payment Calculation</div>
         <table>
@@ -87,8 +151,9 @@
             <tr class="total-row"><td>Gross Pay</td><td class="value">LKR {{ number_format($metrics['how_much_paid'] ?? 0, 2) }}</td></tr>
         </table>
     </div>
+    @endif
 
-    @if(($metrics['total_deductions'] ?? 0) > 0)
+    @if(($metrics['total_deductions'] ?? 0) > 0 && !isset($metrics['payroll_records']) )
     <div class="section">
         <div class="section-title">Deductions</div>
         <table>
@@ -114,11 +179,13 @@
     </div>
     @endif
 
+    @if(!isset($metrics['payroll_records']))
     <div class="section">
         <table>
             <tr class="total-row"><td><strong>Net Pay</strong></td><td class="value"><strong>LKR {{ number_format(($metrics['how_much_paid'] ?? 0) - ($metrics['total_deductions'] ?? 0), 2) }}</strong></td></tr>
         </table>
     </div>
+    @endif
     @endif
 
     @if(!isset($metrics) && isset($payroll) && $payroll->basic > 0)

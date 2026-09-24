@@ -35,6 +35,7 @@ use App\Http\Controllers\V1\UserAllowedLocationController;
 use App\Http\Controllers\V1\LoanController;
 use App\Http\Controllers\V1\EmployeeSalaryController;
 use App\Http\Controllers\V1\PayrollDeductionController;
+use App\Http\Controllers\V1\PayrollSettingsController;
 use App\Http\Controllers\V1\WeekendHolidayWorkController;
 use Illuminate\Support\Facades\Route;
 
@@ -263,6 +264,13 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('/payroll/month-status', [PayrollAdminController::class, 'getMonthStatus']);
         Route::post('/payroll/months/activate', [PayrollAdminController::class, 'activateMonth']);
         Route::post('/payroll/months/lock', [PayrollAdminController::class, 'lockMonth']);
+
+        // Payroll settings
+        Route::get('/payroll-settings', [PayrollSettingsController::class, 'index']);
+        Route::put('/payroll-settings', [PayrollSettingsController::class, 'update']);
+
+        // Payroll report (must be before {id} route to avoid conflicts)
+        Route::get('/payroll/report', [PayrollAdminController::class, 'payrollReport']);
 
         Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
         Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);

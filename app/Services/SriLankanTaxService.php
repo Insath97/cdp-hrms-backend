@@ -54,4 +54,13 @@ class SriLankanTaxService
     {
         return round($gross * 0.08, 2);
     }
+
+    /**
+     * APIT (Advanced Personal Income Tax) on the achievement-scaled total
+     * package. Uses the same summary tax brackets as PAYE.
+     */
+    public static function apiit(float $monthlyPackage): float
+    {
+        return self::paye($monthlyPackage);
+    }
 }

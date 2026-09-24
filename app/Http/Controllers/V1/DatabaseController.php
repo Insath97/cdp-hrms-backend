@@ -4,17 +4,21 @@ namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
 use App\Services\DatabaseService;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class DatabaseController extends Controller implements HasMiddleware
 {
-    protected $databaseService;
+    use ActivityLogTrait;
+
+    protected DatabaseService $databaseService;
 
     public function __construct(DatabaseService $databaseService)
     {
@@ -53,6 +57,10 @@ class DatabaseController extends Controller implements HasMiddleware
         try {
             $filePath = $this->databaseService->export();
             $filename = basename($filePath);
+
+            $this->logActivity('EXPORT', 'Database', "Exported database backup: {$filename}", [
+                'filename' => $filename,
+            ]);
 
             return response()->download($filePath, $filename, [
                 'Content-Type' => 'application/octet-stream',
@@ -93,12 +101,18 @@ class DatabaseController extends Controller implements HasMiddleware
 
             // Store temporarily
             $filePath = $file->storeAs('temp', 'import.sql');
-            $fullPath = storage_path('app/' . $filePath);
+            $fullPath = Storage::path($filePath);
 
             $this->databaseService->import($fullPath);
 
+            $originalName = $file->getClientOriginalName();
+
             // Clean up
             @unlink($fullPath);
+
+            $this->logActivity('IMPORT', 'Database', "Imported database from: {$originalName}", [
+                'filename' => $originalName,
+            ]);
 
             Log::info("Database imported successfully.");
 

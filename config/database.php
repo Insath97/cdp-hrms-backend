@@ -29,6 +29,21 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | MySQL Binary Paths (mysqldump / mysql)
+    |--------------------------------------------------------------------------
+    |
+    | Optional absolute paths used by the DatabaseService for export/import.
+    | When empty the binaries are auto-detected from PATH (or Laragon on Windows).
+    |
+    */
+
+    'binaries' => [
+        'mysqldump' => env('MYSQLDUMP_PATH', ''),
+        'mysql' => env('MYSQL_CLIENT_PATH', ''),
+    ],
+
     'connections' => [
 
         'sqlite' => [

@@ -13,7 +13,7 @@ class EmployeeSalaryController extends Controller
 {
     use ActivityLogTrait;
 
-    public function show($employeeId)
+    public function show(int|string $employeeId)
     {
         try {
             $employee = Employee::with('designation')->findOrFail($employeeId);
@@ -70,7 +70,7 @@ class EmployeeSalaryController extends Controller
         }
     }
 
-    public function upsert(Request $request, $employeeId)
+    public function upsert(Request $request, int|string $employeeId)
     {
         try {
             $request->validate([
@@ -138,7 +138,7 @@ class EmployeeSalaryController extends Controller
         }
     }
 
-    public function destroy($employeeId)
+    public function destroy(int|string $employeeId)
     {
         try {
             $salaryDetail = EmployeeSalaryDetail::where('employee_id', $employeeId)
@@ -168,7 +168,7 @@ class EmployeeSalaryController extends Controller
         }
     }
 
-    public function history($employeeId)
+    public function history(int|string $employeeId)
     {
         try {
             $employee = Employee::findOrFail($employeeId);
