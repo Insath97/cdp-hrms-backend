@@ -67,7 +67,7 @@ class EmployeeController extends Controller implements HasMiddleware
                 $query->where('employee_type', $request->employee_type);
             }
 
-            $employees = $query->orderBy('employee_code', 'asc')->paginate($perPage);
+            $employees = $query->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")->paginate($perPage);
 
             $employeesArray = $employees->toArray();
             foreach ($employeesArray['data'] as &$employee) {
@@ -207,6 +207,7 @@ class EmployeeController extends Controller implements HasMiddleware
                 'user_type' => $userType,
                 'is_active' => true,
                 'can_login' => true,
+                'profile_image' => $data['profile_image'] ?? null,
             ]);
 
             $user->assignRole($roleValue);
@@ -450,6 +451,40 @@ class EmployeeController extends Controller implements HasMiddleware
                 }
                 if ($username !== null && !empty($username)) {
                     $user->username = $username;
+                }
+
+                // Auto-sync profile fields from the employee record
+                if (array_key_exists('full_name', $data)) {
+                    $user->name = $data['full_name'];
+                }
+                if (array_key_exists('employee_code', $data) && ($username === null || $username === '')) {
+                    $user->username = $data['employee_code'];
+                }
+                if (array_key_exists('email', $data)) {
+                    if ($data['email'] !== null) {
+                        $emailOwner = \App\Models\User::where('email', $data['email'])
+                            ->where('id', '!=', $user->id)
+                            ->exists();
+                        if ($emailOwner) {
+                            Log::warning('Skipped syncing user email: already in use by another user', [
+                                'user_id' => $user->id,
+                                'email' => $data['email'],
+                            ]);
+                        } else {
+                            $user->email = $data['email'];
+                        }
+                    } else {
+                        $user->email = null;
+                    }
+                }
+                if (array_key_exists('profile_image', $data)) {
+                    $user->profile_image = $data['profile_image'];
+                }
+                // Login access follows employee activation state
+                if (array_key_exists('is_active', $data) || array_key_exists('employment_status', $data)) {
+                    $loginEnabled = (bool) $employee->is_active && $employee->employment_status === 'active';
+                    $user->is_active = $loginEnabled;
+                    $user->can_login = $loginEnabled;
                 }
                 $user->save();
 
@@ -857,7 +892,7 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $employees = $query->select('id', 'full_name', 'employee_code', 'branch_id', 'department_id')
                 ->with(['branch:id,name', 'department:id,name'])
-                ->orderBy(' ', 'asc')
+                ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
                 ->get();
 
             return response()->json([

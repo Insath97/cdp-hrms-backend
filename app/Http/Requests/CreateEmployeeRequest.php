@@ -108,8 +108,8 @@ class CreateEmployeeRequest extends FormRequest
         })->values();
 
         $message = $fieldErrors->count() > 1
-            ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for '.$fieldErrors->first()['field'].'.';
+            ? 'Please fix the highlighted fields and try again. ('. $fieldErrors->first()['messages'][0] .')'
+            : $fieldErrors->first()['messages'][0];
 
         throw new HttpResponseException(response()->json([
             'message' => $message,
