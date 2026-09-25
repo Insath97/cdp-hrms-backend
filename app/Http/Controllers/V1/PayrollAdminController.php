@@ -803,6 +803,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     'activated_at' => $record->activated_at,
                     'locked_by' => $record->locker?->name ?? null,
                     'locked_at' => $record->locked_at,
+                    'has_processed_payroll' => $this->hasProcessedPayroll($month),
                 ],
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -832,6 +833,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Invalid month format',
+                ], 422);
+            }
+
+            if (! $this->hasProcessedPayroll($request->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Payroll has not been processed for this month yet. Please process payroll before activating it.',
                 ], 422);
             }
 
@@ -885,6 +893,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 ], 422);
             }
 
+            if (! $this->hasProcessedPayroll($request->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Payroll has not been processed for this month yet. Please process payroll before locking it.',
+                ], 422);
+            }
+
             $record->update([
                 'status' => 'locked',
                 'locked_by' => Auth::id(),
@@ -910,6 +925,20 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'message' => 'Failed to lock payroll month: '.$th->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Whether payroll records already exist for the given month.
+     * A month can only be activated or locked after payroll has been processed.
+     */
+    private function hasProcessedPayroll(string $month): bool
+    {
+        $normalized = PayrollActivationService::normalizeMonth($month);
+        if ($normalized && PayrollRecord::where('month', $normalized)->exists()) {
+            return true;
+        }
+
+        return PayrollRecord::where('month', $month)->exists();
     }
 
     /**

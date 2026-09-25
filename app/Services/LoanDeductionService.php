@@ -11,15 +11,18 @@ class LoanDeductionService
      * Return the loan/advance installments that apply for a given payroll period.
      *
      * A loan is only deducted when:
-     *  - the payroll period falls within the loan's [start_date, end_date] window, and
-     *  - the number of installments already scheduled (months elapsed since start)
-     *    is still below the total number of installments for the loan.
+     *  - the payroll period falls within the loan's effective month window
+     *    [effective_from, effective_to] (YYYY-MM granularity), and
+     *  - the number of installments already scheduled (months elapsed since the
+     *    effective from month) is still below the total number of installments
+     *    for the loan.
      *
      * @return array{items: array<int, array{loan_id: int, type: string, label: string, amount: float}>, total: float}
      */
     public static function activeForPeriod(int $employeeId, string $period): array
     {
         $periodDate = self::parsePeriod($period);
+        $periodYm = $periodDate->format('Y-m');
 
         $activeLoans = Loan::where('employee_id', $employeeId)
             ->where('status', 'active')
@@ -31,15 +34,18 @@ class LoanDeductionService
         $total = 0.0;
 
         foreach ($activeLoans as $loan) {
-            $start = $loan->start_date ? Carbon::parse($loan->start_date)->startOfMonth() : null;
+            // Effective month window (YYYY-MM strings) with legacy date fallback
+            $effectiveFrom = $loan->effective_from ?: ($loan->start_date ? $loan->start_date->format('Y-m') : null);
+            $effectiveTo = $loan->effective_to ?: ($loan->end_date ? $loan->end_date->format('Y-m') : null);
+            $start = $effectiveFrom ? Carbon::createFromFormat('Y-m', $effectiveFrom)->startOfMonth() : null;
 
-            // No start date -> treat as eligible from any period
-            if ($start && $periodDate->lt($start)) {
+            // Not yet effective -> skip
+            if ($effectiveFrom && $periodYm < $effectiveFrom) {
                 continue;
             }
 
-            // Beyond the loan end date -> no longer deducted
-            if ($loan->end_date && $periodDate->gt(Carbon::parse($loan->end_date)->startOfMonth())) {
+            // Past the effective end month -> no longer deducted
+            if ($effectiveTo && $periodYm > $effectiveTo) {
                 continue;
             }
 
@@ -51,7 +57,7 @@ class LoanDeductionService
             // Total number of installments the loan is meant to be paid over
             $totalInstallments = max(1, (int) ceil((float) $loan->total_amount / $monthlyInstallment));
 
-            // Months elapsed since the loan started (start month = 0)
+            // Months elapsed since the loan became effective (start month = 0)
             $elapsed = $start
                 ? (($periodDate->year - $start->year) * 12) + ($periodDate->month - $start->month)
                 : 0;

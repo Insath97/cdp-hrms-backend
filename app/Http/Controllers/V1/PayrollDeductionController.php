@@ -173,6 +173,14 @@ class PayrollDeductionController extends Controller
         try {
             $deduction = PayrollDeduction::findOrFail($deductionId);
 
+            $payrollRecord = PayrollRecord::find($deduction->payroll_record_id);
+            if ($payrollRecord && \App\Services\PayrollActivationService::isLocked($payrollRecord->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
+
             $deduction->update([
                 'approval_status' => 'approved',
                 'rejection_reason' => null,
@@ -208,6 +216,14 @@ class PayrollDeductionController extends Controller
             ]);
 
             $deduction = PayrollDeduction::findOrFail($deductionId);
+
+            $payrollRecord = PayrollRecord::find($deduction->payroll_record_id);
+            if ($payrollRecord && \App\Services\PayrollActivationService::isLocked($payrollRecord->month)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
 
             $deduction->update([
                 'approval_status' => 'rejected',

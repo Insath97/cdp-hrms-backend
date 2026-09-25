@@ -34,6 +34,7 @@ use App\Http\Controllers\V1\GeofenceController;
 use App\Http\Controllers\V1\UserAllowedLocationController;
 use App\Http\Controllers\V1\LoanController;
 use App\Http\Controllers\V1\EmployeeSalaryController;
+use App\Http\Controllers\V1\EpfReportController;
 use App\Http\Controllers\V1\PayrollDeductionController;
 use App\Http\Controllers\V1\PayrollSettingsController;
 use App\Http\Controllers\V1\WeekendHolidayWorkController;
@@ -310,6 +311,11 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // Loans
     Route::middleware(['permission:Payroll Update|Payroll Deduction Approve'])->group(function () {
         Route::get('loans/pending-approvals', [LoanController::class, 'pendingApprovals']);
+        Route::post('loans/bulk', [LoanController::class, 'bulkStore']);
+        Route::post('loans/bulk/{batchKey}/approve', [LoanController::class, 'bulkApprove']);
+        Route::post('loans/bulk/{batchKey}/reject', [LoanController::class, 'bulkReject']);
+        Route::put('loans/bulk/{batchKey}', [LoanController::class, 'bulkUpdate']);
+        Route::delete('loans/bulk/{batchKey}', [LoanController::class, 'bulkDestroy']);
         Route::post('loans/{id}/approve', [LoanController::class, 'approve']);
         Route::post('loans/{id}/reject', [LoanController::class, 'reject']);
         Route::apiResource('loans', LoanController::class);
@@ -321,4 +327,8 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('employees/{employeeId}/salary/history', [EmployeeSalaryController::class, 'history']);
     Route::put('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'upsert']);
     Route::delete('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'destroy']);
+
+    // EPF Report (CSV) - non-RT employees
+    Route::get('reports/epf', [EpfReportController::class, 'index']);
+    Route::get('reports/epf/preview', [EpfReportController::class, 'preview']);
 });
