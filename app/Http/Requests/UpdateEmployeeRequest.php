@@ -5,6 +5,9 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use App\Models\Bank;
+use App\Services\BankAccountFormatService;
+use App\Support\TextNormalizer;
 
 class UpdateEmployeeRequest extends FormRequest
 {
@@ -71,8 +74,19 @@ class UpdateEmployeeRequest extends FormRequest
             'mobile_payment' => 'sometimes|nullable|numeric|min:0',
             'monthly_target' => 'sometimes|nullable|numeric|min:0',
             'bank_name' => 'nullable|string|max:255',
+            'bank_id' => 'nullable|integer|exists:banks,id',
             'bank_branch' => 'nullable|string|max:255',
-            'account_number' => 'nullable|string|max:50',
+            'account_number' => ['nullable', 'string', 'max:50', function ($attribute, $value, $fail) {
+                if ($value === null || trim((string) $value) === '') {
+                    return;
+                }
+                $bankId = $this->input('bank_id') ?? $this->route('employee')?->bank_id;
+                $bank = $bankId ? Bank::find($bankId) : null;
+                [$valid, $message] = BankAccountFormatService::validateAccountNumber((string) $value, $bank);
+                if (!$valid) {
+                    $fail($message);
+                }
+            }],
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
             'username' => 'sometimes|nullable|string|max:255',
@@ -103,13 +117,35 @@ class UpdateEmployeeRequest extends FormRequest
             'phone', 'phone_secondary', 'whatsapp_number', 'address_line_1',
             'city', 'state', 'postal_code', 'bank_name', 'bank_branch',
             'account_number', 'extension_reason', 'termination_reason',
-            'description', 'employee_type',
+            'description', 'employee_type', 'bank_id',
         ];
 
         $merge = [];
         foreach ($nullableFields as $field) {
             if ($this->has($field) && $this->input($field) === '') {
                 $merge[$field] = null;
+            }
+        }
+
+        if (!empty($merge)) {
+            $this->merge($merge);
+        }
+
+        // Normalize exotic Unicode fonts (copy-paste issues) for text fields
+        $normalizeFields = [
+            'f_name', 'l_name', 'full_name', 'name_with_initials', 'email',
+            'address_line_1', 'city', 'state', 'country', 'termination_reason',
+            'bank_name', 'bank_branch', 'description', 'extension_reason',
+        ];
+
+        $merge = [];
+        foreach ($normalizeFields as $field) {
+            $value = $this->input($field);
+            if (is_string($value) && $value !== '') {
+                $normalized = TextNormalizer::normalize($value);
+                if ($normalized !== $value) {
+                    $merge[$field] = $normalized;
+                }
             }
         }
 

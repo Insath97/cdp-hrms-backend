@@ -70,6 +70,7 @@ class Employee extends Model
         'employment_status',
         'basic_salary',
         'bank_name',
+        'bank_id',
         'bank_branch',
         'account_number',
         'description',
@@ -149,6 +150,11 @@ class Employee extends Model
     public function salaryDetail(): HasOne
     {
         return $this->hasOne(EmployeeSalaryDetail::class);
+    }
+
+    public function bank()
+    {
+        return $this->belongsTo(Bank::class);
     }
 
     public function salaryHistory(): HasMany

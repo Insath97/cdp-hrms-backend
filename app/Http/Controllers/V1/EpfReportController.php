@@ -44,7 +44,7 @@ class EpfReportController extends Controller
         // All employees whose employee_code does NOT contain "RT" (case-sensitive matching as per spec: "dont have RT")
         $employees = Employee::with(['designation', 'salaryDetail'])
             ->whereRaw("employee_code NOT LIKE '%RT%'")
-            ->orderBy('employee_code')
+            ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
             ->get();
 
         $rows = [];
@@ -157,13 +157,33 @@ class EpfReportController extends Controller
 
         $employees = Employee::with(['designation'])
             ->whereRaw("employee_code NOT LIKE '%RT%'")
-            ->orderBy('employee_code')
+            ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
             ->get();
 
         $rows = [];
+        $totals = [
+            'members' => 0,
+            'basic' => 0.0,
+            'total_contribution' => 0.0,
+            'employer' => 0.0,
+            'member' => 0.0,
+            'earnings' => 0.0,
+        ];
         foreach ($employees as $emp) {
             $basic = $this->resolveBasicSalary($emp, $period);
             $deductions = $this->resolveDeductions($emp, $periodYm);
+            $totalContribution = round($basic*0.20,2);
+            $employerContribution = round($basic*0.12,2);
+            $memberContribution = round($basic*0.08,2);
+            $earnings = round(max(0, $basic - $deductions),2);
+
+            $totals['members']++;
+            $totals['basic'] += $basic;
+            $totals['total_contribution'] += $totalContribution;
+            $totals['employer'] += $employerContribution;
+            $totals['member'] += $memberContribution;
+            $totals['earnings'] += $earnings;
+
             $rows[] = [
                 'id' => $emp->id,
                 'nic' => (string)($emp->id_number ?? ''),
@@ -171,10 +191,10 @@ class EpfReportController extends Controller
                 'initials' => $this->resolveInitials($emp),
                 'member_number' => (string)($emp->employee_code ?? ''),
                 'basic_salary' => round($basic,2),
-                'total_contribution' => round($basic*0.20,2),
-                'employer_contribution' => round($basic*0.12,2),
-                'member_contribution' => round($basic*0.08,2),
-                'total_earnings' => round(max(0, $basic - $deductions),2),
+                'total_contribution' => $totalContribution,
+                'employer_contribution' => $employerContribution,
+                'member_contribution' => $memberContribution,
+                'total_earnings' => $earnings,
                 'deductions' => round($deductions,2),
                 'member_status' => $this->resolveMemberStatus($emp, $period),
                 'zone' => 'A',
@@ -192,6 +212,12 @@ class EpfReportController extends Controller
                 'month' => $periodYm,
                 'contribution_period' => $periodYyyymm,
                 'count' => count($rows),
+                'total_members' => $totals['members'],
+                'total_basic_salary' => round($totals['basic'], 2),
+                'total_contribution' => round($totals['total_contribution'], 2),
+                'total_employer_contribution' => round($totals['employer'], 2),
+                'total_member_contribution' => round($totals['member'], 2),
+                'total_earnings' => round($totals['earnings'], 2),
                 'rows' => $rows,
             ]
         ]);
@@ -286,16 +312,6 @@ class EpfReportController extends Controller
 
     private function resolveInitials(Employee $emp): string
     {
-        $initials = trim((string)($emp->name_with_initials ?? ''));
-        if ($initials !== '') return $initials;
-        $full = trim((string)($emp->full_name ?? ''));
-        if ($full === '') return '';
-        $parts = preg_split('/\s+/', $full);
-        if (count($parts) >= 2) {
-            $last = array_pop($parts);
-            $inits = array_map(fn($p) => mb_substr($p, 0, 1) . '.', $parts);
-            return implode(' ', $inits) . ' ' . $last;
-        }
-        return $full;
+        return trim((string)($emp->name_with_initials ?? ''));
     }
 }

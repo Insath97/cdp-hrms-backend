@@ -117,7 +117,12 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Payroll Update', 'group_name' => 'Payroll Management Permissions'],
             ['name' => 'Payroll Process', 'group_name' => 'Payroll Management Permissions'],
             ['name' => 'Payroll Activate', 'group_name' => 'Payroll Management Permissions'],
+            ['name' => 'Payroll Deduction Index', 'group_name' => 'Payroll Management Permissions'],
+            ['name' => 'Payroll Deduction Create', 'group_name' => 'Payroll Management Permissions'],
+            ['name' => 'Payroll Deduction Delete', 'group_name' => 'Payroll Management Permissions'],
             ['name' => 'Payroll Deduction Approve', 'group_name' => 'Payroll Management Permissions'],
+            ['name' => 'Payroll Deduction Reject', 'group_name' => 'Payroll Management Permissions'],
+            ['name' => 'Payroll Deduction Report', 'group_name' => 'Payroll Management Permissions'],
 
             /* Import Management */
             ['name' => 'Import Index', 'group_name' => 'Import Management Permissions'],
@@ -132,6 +137,18 @@ class PermissionsSeeder extends Seeder
 
             /* Geofence Management */
             ['name' => 'Geofence Manage', 'group_name' => 'Geofence Management Permissions'],
+
+            /* Bank & Purpose Code Management (CUS salary upload) */
+            ['name' => 'Bank Index', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'Bank Create', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'Bank Update', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'Bank Delete', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'Bank Toggle Status', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'PurposeCode Index', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'PurposeCode Create', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'PurposeCode Update', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'PurposeCode Delete', 'group_name' => 'Bank Management Permissions'],
+            ['name' => 'PurposeCode Toggle Status', 'group_name' => 'Bank Management Permissions'],
             ];
 
         foreach ($permissions as $permission) {

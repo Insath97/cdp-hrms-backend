@@ -33,8 +33,13 @@ use App\Http\Controllers\V1\Admin\AbsentMarkingController;
 use App\Http\Controllers\V1\GeofenceController;
 use App\Http\Controllers\V1\UserAllowedLocationController;
 use App\Http\Controllers\V1\LoanController;
+use App\Http\Controllers\V1\BankLookupController;
+use App\Http\Controllers\V1\BankController;
+use App\Http\Controllers\V1\PurposeCodeController;
+use App\Http\Controllers\V1\CusReportController;
 use App\Http\Controllers\V1\EmployeeSalaryController;
 use App\Http\Controllers\V1\EpfReportController;
+use App\Http\Controllers\V1\EtfReportController;
 use App\Http\Controllers\V1\PayrollDeductionController;
 use App\Http\Controllers\V1\PayrollSettingsController;
 use App\Http\Controllers\V1\WeekendHolidayWorkController;
@@ -246,11 +251,24 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
         Route::post('/payroll/bulk-generate', [PayrollAdminController::class, 'bulkGenerate']);
 
-        Route::post('/payroll/process-batch', [PayrollAdminController::class, 'processPayrolls']);
+        // Generate/calculate payroll. This writes status = draft; it does NOT
+        // finalise records. See process-batch-status for that.
+        Route::post('/payroll/generate-batch', [PayrollAdminController::class, 'generatePayrolls']);
+
+        // Backwards-compatible alias for the old, misleading name.
+        Route::post('/payroll/process-batch', [PayrollAdminController::class, 'generatePayrolls']);
+
+        // Bulk draft -> processed (finalise a month for CUS / payslips)
+        Route::post('/payroll/process-batch-status', [PayrollAdminController::class, 'processPayrollBatchStatus']);
 
         // Payroll Deductions (must be before {id} routes to avoid conflicts)
         Route::post('/payroll/deductions/{deductionId}/approve', [PayrollDeductionController::class, 'approve']);
         Route::post('/payroll/deductions/{deductionId}/reject', [PayrollDeductionController::class, 'reject']);
+        Route::get('/payroll/deductions/report', [PayrollDeductionController::class, 'report']);
+        Route::get('/payroll/deductions/report/csv', [PayrollDeductionController::class, 'reportCsv']);
+        Route::get('/payroll/deductions/summary', [PayrollDeductionController::class, 'summary']);
+        Route::post('/payroll/{payrollRecordId}/deductions/bulk-approve', [PayrollDeductionController::class, 'bulkApprove']);
+        Route::post('/payroll/{payrollRecordId}/deductions/bulk-reject', [PayrollDeductionController::class, 'bulkReject']);
         Route::get('/payroll/{payrollRecordId}/deductions/pending', [PayrollDeductionController::class, 'pendingDeductions']);
         Route::get('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'index']);
         Route::post('/payroll/{payrollRecordId}/deductions', [PayrollDeductionController::class, 'store']);
@@ -331,4 +349,24 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // EPF Report (CSV) - non-RT employees
     Route::get('reports/epf', [EpfReportController::class, 'index']);
     Route::get('reports/epf/preview', [EpfReportController::class, 'preview']);
+
+    // ETF Report - 3% of basic_salary, non-RT employees
+    Route::get('reports/etf', [EtfReportController::class, 'index']);
+    Route::get('reports/etf/preview', [EtfReportController::class, 'preview']);
+
+    // CUS Report - bank salary upload sheet (5th / 15th / 20th)
+    Route::get('reports/cus/preview', [CusReportController::class, 'preview']);
+    Route::get('reports/cus/download', [CusReportController::class, 'download']);
+
+    // Bank + purpose code lookups
+    Route::get('lookups/banks', [BankLookupController::class, 'banks']);
+    Route::get('lookups/purpose-codes', [BankLookupController::class, 'purposeCodes']);
+
+    // Bank management (CUS salary upload reference data)
+    Route::patch('banks/{bank}/toggle-status', [BankController::class, 'toggleStatus']);
+    Route::apiResource('banks', BankController::class);
+
+    // Purpose code management (CUS salary upload reference data)
+    Route::patch('purpose-codes/{purpose_code}/toggle-status', [PurposeCodeController::class, 'toggleStatus']);
+    Route::apiResource('purpose-codes', PurposeCodeController::class);
 });

@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -34,9 +35,9 @@ class PayrollAdminController extends Controller implements HasMiddleware
             new Middleware('auth:api'),
             new Middleware('permission:Payroll Approve|Payroll View All', only: ['pendingRequests', 'allRequests', 'approveRequest']),
             new Middleware('permission:Payroll Reject', only: ['rejectRequest']),
-            new Middleware('permission:Payroll Generate', only: ['bulkGenerate', 'processPayrolls']),
+            new Middleware('permission:Payroll Generate', only: ['bulkGenerate', 'generatePayrolls']),
             new Middleware('permission:Payroll Update', only: ['updatePayroll']),
-            new Middleware('permission:Payroll Process', only: ['processPayroll']),
+            new Middleware('permission:Payroll Process', only: ['processPayroll', 'processPayrollBatchStatus']),
             new Middleware('permission:Payroll Activate|Payroll View All', only: ['getMonthStatus']),
             new Middleware('permission:Payroll Activate', only: ['activateMonth', 'lockMonth']),
             new Middleware('permission:Payroll View All|Payroll Activate', only: ['payrollReport']),
@@ -649,9 +650,12 @@ class PayrollAdminController extends Controller implements HasMiddleware
             }
 
             $records = PayrollRecord::with(['user.employee.department', 'user.employee.designation'])
-                ->where('month', $month)
-                ->orderBy('user_id')
-                ->orderByRaw("FIELD(pay_day, 'basic', 'commission', 'allowance')")
+                ->join('users as pu', 'pu.id', '=', 'payroll_records.user_id')
+                ->join('employees as pe', 'pe.id', '=', 'pu.employee_id')
+                ->where('payroll_records.month', $month)
+                ->select('payroll_records.*')
+                ->orderByRaw("(CASE WHEN pe.employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(pe.employee_code, '[0-9]+') AS UNSIGNED) ASC, pe.employee_code ASC")
+                ->orderByRaw("FIELD(payroll_records.pay_day, 'basic', 'commission', 'allowance')")
                 ->get();
 
             $rows = [];
@@ -1167,9 +1171,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
     }
 
     /**
-     * Process payroll for selected employees (full calculation with CDP metrics, EPF/PAYE, commission, deductions)
+     * Generate/calculate payroll for multiple employees.
+     *
+     * Every record written here has status = draft. Finalising is a separate,
+     * deliberate step (processPayrollBatchStatus / processPayroll) so that the
+     * numbers can be reviewed before they reach CUS, EPF/ETF and payslips.
      */
-    public function processPayrolls(Request $request)
+    public function generatePayrolls(Request $request)
     {
         try {
             $request->validate([
@@ -1187,6 +1195,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             $period = $request->month;
             $generated = [];
             $errors = [];
+            $generatedEmployees = [];
 
             $calculationService = app(\App\Services\PayrollCalculationService::class);
 
@@ -1195,39 +1204,40 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     // Frontend sends employee IDs — look up the linked user
                     $employee = Employee::with(['user', 'designation', 'department', 'activeSalaryDetail'])->find($userId);
                     if (! $employee) {
-                        $errors[] = ['user_id' => $userId, 'error' => 'Employee not found'];
+                        $errors[] = $this->payrollProcessError(null, 'Employee not found', $userId);
                         continue;
                     }
 
                     $user = $employee->user;
                     if (! $user) {
-                        $errors[] = ['user_id' => $userId, 'error' => 'No linked user account'];
+                        $errors[] = $this->payrollProcessError($employee, 'No linked user account');
                         continue;
                     }
 
                     if (! $user->is_active) {
-                        $errors[] = ['user_id' => $userId, 'error' => 'User account is inactive'];
+                        $errors[] = $this->payrollProcessError($employee, 'User account is inactive');
                         continue;
                     }
 
                     if (isset($employee->employment_status) && $employee->employment_status !== 'active') {
-                        $errors[] = ['user_id' => $userId, 'error' => 'Employee is not active'];
+                        $errors[] = $this->payrollProcessError($employee, "Employee is not active ({$employee->employment_status})");
                         continue;
                     }
 
                     $records = $calculationService->processEmployee($period, $employee);
 
                     if (! count($records)) {
-                        $errors[] = ['user_id' => $userId, 'error' => 'No payroll generated for this employee'];
+                        $errors[] = $this->payrollProcessError($employee, 'No payroll generated for this employee');
                         continue;
                     }
 
+                    $generatedEmployees[$employee->id] = $employee->employee_code;
                     foreach ($records as $record) {
                         $generated[] = $record;
                     }
 
                 } catch (\Exception $e) {
-                    $errors[] = ['user_id' => $userId, 'error' => $e->getMessage()];
+                    $errors[] = $this->payrollProcessError($employee ?? null, $e->getMessage(), $userId);
                 }
             }
 
@@ -1235,9 +1245,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Payroll processed successfully',
+                'message' => 'Payroll generated successfully',
                 'data' => [
+                    // Number of payroll RECORDS written (an employee can have
+                    // up to 3: 5th basic, 15th commission, 20th allowance).
                     'generated' => count($generated),
+                    // Number of distinct EMPLOYEES that produced records.
+                    'generated_employees' => count($generatedEmployees),
                     'failed'    => count($errors),
                     'errors'    => $errors,
                 ],
@@ -1253,6 +1267,116 @@ class PayrollAdminController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to process payroll: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Build a payroll failure entry that the frontend can actually display.
+     *
+     * A bare user_id is not enough for a user to recognise the employee, so
+     * the employee code and name are included whenever they are known.
+     */
+    private function payrollProcessError(?Employee $employee, string $message, $fallbackId = null): array
+    {
+        return array_filter([
+            'user_id' => $employee?->id ?? $fallbackId,
+            'employee_id' => $employee?->id,
+            'employee_code' => $employee?->employee_code,
+            'employee_name' => $employee?->full_name,
+            'designation' => $employee?->designation?->name,
+            'error' => $message,
+        ], fn ($value) => $value !== null);
+    }
+
+    /**
+     * Bulk mark payroll records as processed.
+     *
+     * Generation always writes status = draft; this is the missing step that
+     * flips a whole month to processed so downstream consumers (CUS salary
+     * upload, payslips) can use it.
+     */
+    public function processPayrollBatchStatus(Request $request)
+    {
+        try {
+            $request->validate([
+                'month' => 'required|string',
+                'payroll_ids' => 'nullable|array',
+                'payroll_ids.*' => 'integer|exists:payroll_records,id',
+                'pay_days' => 'nullable|array',
+                'pay_days.*' => 'in:basic,commission,allowance',
+            ]);
+
+            $period = $request->month;
+
+            if (PayrollActivationService::isLocked($period)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This payroll month is locked and cannot be modified.',
+                ], 403);
+            }
+
+            $query = PayrollRecord::where('month', $period)
+                ->where('status', 'draft');
+
+            if ($request->filled('payroll_ids')) {
+                $query->whereIn('id', $request->payroll_ids);
+            } elseif ($request->filled('pay_days')) {
+                $query->whereIn('pay_day', $request->pay_days);
+            }
+
+            $records = $query->get(['id', 'employee_id']);
+
+            if ($records->isEmpty()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No draft payroll records found for this month.',
+                ], 422);
+            }
+
+            $employeeCount = $records->pluck('employee_id')->filter()->unique()->count();
+
+            $now = now();
+            $updated = 0;
+
+            // Chunked so a large month does not build one huge statement.
+            $records->chunk(500)->each(function ($chunk) use ($now, &$updated) {
+                $updated += PayrollRecord::whereIn('id', $chunk->pluck('id'))->update([
+                    'status' => 'processed',
+                    'processed_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            });
+
+            $this->logActivity('PROCESS', 'Payroll', "Bulk processed {$updated} payroll records for month {$period}");
+
+            Log::info('Payroll batch status updated', [
+                'user_id' => Auth::id(),
+                'month' => $period,
+                'records_processed' => $updated,
+                'employees_affected' => $employeeCount,
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Marked {$updated} payroll records as processed",
+                'data' => [
+                    'processed' => $updated,
+                    'processed_employees' => $employeeCount,
+                    'month' => $period,
+                ],
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to process payroll status: ' . $e->getMessage(),
             ], 500);
         }
     }
