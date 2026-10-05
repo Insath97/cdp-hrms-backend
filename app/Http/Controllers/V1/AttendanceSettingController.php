@@ -5,9 +5,18 @@ namespace App\Http\Controllers\V1;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceSetting;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
 
-class AttendanceSettingController extends Controller
+class AttendanceSettingController extends Controller implements HasMiddleware
 {
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('permission:Attendance Settings|Attendance Update', only: ['getAll', 'get', 'update', 'batchUpdate']),
+        ];
+    }
+
     public function getAll()
     {
         $settings = AttendanceSetting::all()->pluck('value', 'key');

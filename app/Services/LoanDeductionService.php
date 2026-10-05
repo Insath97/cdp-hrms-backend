@@ -73,16 +73,16 @@ class LoanDeductionService
             }
 
             $typeMap = [
-                'Salary Advance'     => 'advance',
-                'Policy Cancellation'=> 'other',
-                'Loan'               => 'loan',
-                'Tax / VAT'          => 'tax',
-                'Damage Penalty'     => 'penalty',
+                'Salary Advance'     => 'Salary Advance',
+                'Policy Cancellation'=> 'Policy Cancellation',
+                'Loan'               => 'Loan',
+                'Tax / VAT'          => 'Tax / VAT',
+                'Damage Penalty'     => 'Damage Penalty',
             ];
 
             $items[] = [
                 'loan_id' => $loan->id,
-                'type'    => $typeMap[$loan->loan_type] ?? 'other',
+                'type'    => $typeMap[$loan->loan_type] ?? 'Other',
                 'label'   => $loan->loan_type . ' Installment',
                 'amount'  => round($installment, 2),
             ];

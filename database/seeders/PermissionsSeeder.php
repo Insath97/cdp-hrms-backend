@@ -104,6 +104,14 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Attendance Delete', 'group_name' => 'Attendance Management Permissions'],
             ['name' => 'Attendance Report', 'group_name' => 'Attendance Management Permissions'],
 
+            /* Attendance section access (sidebar pages) */
+            ['name' => 'Attendance View Team', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance View Company', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance Correct', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance Update Requests', 'group_name' => 'Attendance Management Permissions'],
+            ['name' => 'Attendance Settings', 'group_name' => 'Attendance Management Permissions'],
+            
+
             /* Employee Payroll Permissions */
             ['name' => 'Payroll View', 'group_name' => 'Payroll Management Permissions'],
             ['name' => 'Payroll Request', 'group_name' => 'Payroll Management Permissions'],

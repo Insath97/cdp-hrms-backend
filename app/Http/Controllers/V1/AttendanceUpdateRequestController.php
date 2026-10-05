@@ -11,9 +11,18 @@ use App\Http\Controllers\V1\AttendanceController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
 
-class AttendanceUpdateRequestController extends Controller
+class AttendanceUpdateRequestController extends Controller implements HasMiddleware
 {
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('permission:Attendance Update Requests|Attendance Update', only: ['index', 'show', 'approve', 'reject']),
+        ];
+    }
+
     /**
      * Display a listing of the requests.
      */
@@ -120,7 +129,7 @@ class AttendanceUpdateRequestController extends Controller
             }
 
             $attendance = $updateRequest->attendance;
-            
+
             // Apply requested changes
             $data = [];
             if ($updateRequest->requested_clock_in) {
@@ -133,7 +142,7 @@ class AttendanceUpdateRequestController extends Controller
             // Recalculate late minutes and working hours
             $gracePeriod = \App\Models\AttendanceSetting::getIntSetting('grace_period_minutes', 5);
             $officeStartStr = \App\Models\AttendanceSetting::getSetting('office_start_time', '09:00:00');
-            
+
             if (isset($data['clock_in'])) {
                 $clockIn = Carbon::parse($data['clock_in']);
                 $dateStr = $attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date;
@@ -176,7 +185,7 @@ class AttendanceUpdateRequestController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Attendance update request approved and changes applied',
+                'message' => 'Attendance update request /approved and changes applied',
                 'data' => $attendance->load('employee', 'user')
             ], 200);
         } catch (\Throwable $th) {

@@ -32,6 +32,8 @@ class UpdateEmployeeRequest extends FormRequest
             'l_name' => 'sometimes|string|max:255',
             'full_name' => 'sometimes|string|max:255',
             'name_with_initials' => 'sometimes|string|max:255',
+            'initials' => ['sometimes', 'nullable', 'string', 'max:255', 'regex:/^[a-zA-Z]+(\s+[a-zA-Z]+)*$/'],
+            'surname' => 'sometimes|nullable|string|max:255',
             'employee_code' => 'sometimes|string|max:50|unique:employees,employee_code,' . $id,
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'reporting_manager_id' => 'nullable|exists:employees,id',
@@ -97,6 +99,13 @@ class UpdateEmployeeRequest extends FormRequest
         ];
     }
 
+    public function messages(): array
+    {
+        return [
+            'initials.regex' => 'Initials may only contain letters and spaces, e.g. "K D S".',
+        ];
+    }
+
     public function withValidator($validator)
     {
         $validator->sometimes('email', 'email', function ($input) {
@@ -117,7 +126,7 @@ class UpdateEmployeeRequest extends FormRequest
             'phone', 'phone_secondary', 'whatsapp_number', 'address_line_1',
             'city', 'state', 'postal_code', 'bank_name', 'bank_branch',
             'account_number', 'extension_reason', 'termination_reason',
-            'description', 'employee_type', 'bank_id',
+            'description', 'employee_type', 'bank_id', 'initials', 'surname',
         ];
 
         $merge = [];
@@ -133,7 +142,7 @@ class UpdateEmployeeRequest extends FormRequest
 
         // Normalize exotic Unicode fonts (copy-paste issues) for text fields
         $normalizeFields = [
-            'f_name', 'l_name', 'full_name', 'name_with_initials', 'email',
+            'f_name', 'l_name', 'full_name', 'name_with_initials', 'initials', 'surname', 'email',
             'address_line_1', 'city', 'state', 'country', 'termination_reason',
             'bank_name', 'bank_branch', 'description', 'extension_reason',
         ];

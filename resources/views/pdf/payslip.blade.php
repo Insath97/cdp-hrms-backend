@@ -33,159 +33,98 @@
 
     <div class="employee-info">
         <strong>{{ $user->name }}</strong><br>
-        Employee ID: <span class="badge">{{ isset($metrics['employee_code']) && $metrics['employee_code'] ? $metrics['employee_code'] : ($user->employee_id ?? 'N/A') }}</span><br>
+        Employee ID: {{ isset($metrics['employee_code']) && $metrics['employee_code'] ? $metrics['employee_code'] : ($user->employee_id ?? 'N/A') }}<br>
         @if(isset($metrics['designation_name']) && $metrics['designation_name'])
-        Designation: <span class="badge">{{ $metrics['designation_name'] }}</span><br>
+        Designation: {{ $metrics['designation_name'] }}<br>
         @endif
         @if(isset($metrics['employee_type']) && $metrics['employee_type'])
-        Employee Type: <span class="badge">{{ strtoupper(str_replace('_', ' ', $metrics['employee_type'])) }}</span><br>
+        Employee Type: {{ strtoupper(str_replace('_', ' ', $metrics['employee_type'])) }}<br>
         @endif
         Period: {{ $period_label }}
     </div>
 
     @if(isset($metrics))
-    <div class="section">
-        <div class="section-title">Package Breakdown</div>
-        <table>
-            @if($metrics['monthly_target'] > 0)
-            <tr><td class="label">Monthly Target</td><td class="value">LKR {{ number_format($metrics['monthly_target'], 2) }}</td></tr>
-            @endif
-            @if($metrics['basic_salary'] > 0)
-            <tr><td class="label">Basic Salary</td><td class="value">LKR {{ number_format($metrics['basic_salary'], 2) }}</td></tr>
-            @endif
-            @if($metrics['travel_reimbursement'] > 0)
-            <tr><td class="label">Travel Reimbursement</td><td class="value">LKR {{ number_format($metrics['travel_reimbursement'], 2) }}</td></tr>
-            @endif
-            @if($metrics['vehicle_allowance'] > 0)
-            <tr><td class="label">Vehicle Allowance</td><td class="value">LKR {{ number_format($metrics['vehicle_allowance'], 2) }}</td></tr>
-            @endif
-            @if($metrics['performance_allowance'] > 0)
-            <tr><td class="label">Performance Allowance</td><td class="value">LKR {{ number_format($metrics['performance_allowance'], 2) }}</td></tr>
-            @endif
-            @if($metrics['incentive'] > 0)
-            <tr><td class="label">Incentive</td><td class="value">LKR {{ number_format($metrics['incentive'], 2) }}</td></tr>
-            @endif
-            @if($metrics['position_allowance'] > 0)
-            <tr><td class="label">Position Allowance</td><td class="value">LKR {{ number_format($metrics['position_allowance'], 2) }}</td></tr>
-            @endif
-            @if(isset($metrics['mobile_payment']) && $metrics['mobile_payment'] > 0)
-            <tr><td class="label">Mobile Payment</td><td class="value">LKR {{ number_format($metrics['mobile_payment'], 2) }}</td></tr>
-            @endif
-            <tr class="total-row"><td>Total Package</td><td class="value">LKR {{ number_format($metrics['total_package'], 2) }}</td></tr>
-        </table>
-    </div>
+    {{-- Package Breakdown intentionally omitted from the payslip. --}}
 
-    @if(isset($metrics['payroll_records']) && count($metrics['payroll_records']) > 0)
+    {{-- Consolidated month totals. The per-payment schedule (5th / 15th / 20th)
+         is intentionally not shown on the payslip. --}}
     <div class="section">
-        <div class="section-title">Payment Schedule (5th / 15th / 20th)</div>
-        @php
-            $dayLabels = ['basic' => '5th — Basic', 'commission' => '15th — Commission', 'allowance' => '20th — Allowance'];
-        @endphp
-        @foreach($metrics['payroll_records'] as $rec)
+        <div class="section-title">Earnings</div>
         <table>
-            <tr class="total-row"><td>{{ ($dayLabels[$rec->pay_day] ?? ucfirst($rec->pay_day)) }} ({{ \Illuminate\Support\Str::upper($rec->status) }})</td><td class="value"></td></tr>
-            @if((float) $rec->basic > 0)
-            <tr><td class="label">Basic Salary</td><td class="value">LKR {{ number_format($rec->basic, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->travel_reimbursement > 0)
-            <tr><td class="label">Travel Reimbursement (Fuel)</td><td class="value">LKR {{ number_format($rec->travel_reimbursement, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->vehicle_rental > 0)
-            <tr><td class="label">Vehicle Allowance</td><td class="value">LKR {{ number_format($rec->vehicle_rental, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->incentive > 0)
-            <tr><td class="label">Incentive</td><td class="value">LKR {{ number_format($rec->incentive, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->performance_allowance > 0)
-            <tr><td class="label">Performance Allowance</td><td class="value">LKR {{ number_format($rec->performance_allowance, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->position_allowance > 0)
-            <tr><td class="label">Position Allowance</td><td class="value">LKR {{ number_format($rec->position_allowance, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->mobile_payment > 0)
-            <tr><td class="label">Mobile Payment</td><td class="value">LKR {{ number_format($rec->mobile_payment, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->commission > 0)
-            <tr><td class="label">Commission</td><td class="value">LKR {{ number_format($rec->commission, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->override_commission > 0)
-            <tr><td class="label">Override Commission</td><td class="value">LKR {{ number_format($rec->override_commission, 2) }}</td></tr>
-            @endif
-            <tr class="total-row"><td>Gross (this payment)</td><td class="value">LKR {{ number_format($rec->how_much_paid, 2) }}</td></tr>
-            @if((float) $rec->epf_employee > 0)
-            <tr><td class="label">EPF (Employee 8%)</td><td class="value">- LKR {{ number_format($rec->epf_employee, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->paye_tax > 0)
-            <tr><td class="label">PAYE Income Tax</td><td class="value">- LKR {{ number_format($rec->paye_tax, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->wht_tax > 0)
-            <tr><td class="label">WHT (Withholding Tax 5%)</td><td class="value">- LKR {{ number_format($rec->wht_tax, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->apiit_tax > 0)
-            <tr><td class="label">APIT (Advance Income Tax)</td><td class="value">- LKR {{ number_format($rec->apiit_tax, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->stamp_fee > 0)
-            <tr><td class="label">Stamp Fee</td><td class="value">- LKR {{ number_format($rec->stamp_fee, 2) }}</td></tr>
-            @endif
-            @if((float) $rec->total_deductions > 0)
-            <tr><td class="label">Total Deductions (this payment)</td><td class="value">- LKR {{ number_format($rec->total_deductions, 2) }}</td></tr>
-            @endif
-            <tr><td class="label">Net (this payment)</td><td class="value">LKR {{ number_format($rec->net, 2) }}</td></tr>
-        </table>
-        @endforeach
-        <table>
-            <tr class="total-row"><td><strong>Total Gross Pay (Month)</strong></td><td class="value">LKR {{ number_format($metrics['how_much_paid'], 2) }}</td></tr>
-            <tr class="total-row"><td><strong>Total Net Pay (Month)</strong></td><td class="value"><strong>LKR {{ number_format($metrics['net_pay'], 2) }}</strong></td></tr>
-        </table>
-    </div>
-    @else
-    <div class="section">
-        <div class="section-title">Payment Calculation</div>
-        <table>
+            {{-- @if(($metrics['is_sales'] ?? true) && isset($metrics['achievement_percentage']))
             <tr><td class="label">Achievement</td><td class="value">{{ number_format($metrics['achievement_percentage'], 2) }}%</td></tr>
-            <tr><td class="label">Payment Rate</td><td class="value">{{ $metrics['payment_percentage'] }}% ({{ $metrics['payment_criteria'] }})</td></tr>
-            <tr><td class="label">Calculated Payment</td><td class="value">LKR {{ number_format($metrics['calculated_payment'], 2) }}</td></tr>
-            @if(isset($metrics['total_commission']) && $metrics['total_commission'] > 0)
+            <tr><td class="label">Payment Rate</td><td class="value">{{ $metrics['payment_percentage'] ?? 0 }}% ({{ $metrics['payment_criteria'] ?? '' }})</td></tr>
+            @endif --}}
+            @if(($metrics['paid_basic'] ?? 0) > 0)
+            <tr><td class="label">Basic Salary</td><td class="value">LKR {{ number_format($metrics['paid_basic'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['paid_travel'] ?? 0) > 0)
+            <tr><td class="label">Travel Reimbursement (Fuel)</td><td class="value">LKR {{ number_format($metrics['paid_travel'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['paid_vehicle'] ?? 0) > 0)
+            <tr><td class="label">Vehicle Allowance</td><td class="value">LKR {{ number_format($metrics['paid_vehicle'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['paid_incentive'] ?? 0) > 0)
+            <tr><td class="label">Incentive</td><td class="value">LKR {{ number_format($metrics['paid_incentive'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['paid_performance'] ?? 0) > 0)
+            <tr><td class="label">Performance Allowance</td><td class="value">LKR {{ number_format($metrics['paid_performance'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['paid_position'] ?? 0) > 0)
+            <tr><td class="label">Position Allowance</td><td class="value">LKR {{ number_format($metrics['paid_position'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['paid_mobile'] ?? 0) > 0)
+            <tr><td class="label">Mobile Payment</td><td class="value">LKR {{ number_format($metrics['paid_mobile'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['paid_commission'] ?? 0) > 0)
+            <tr><td class="label">Commission</td><td class="value">LKR {{ number_format($metrics['paid_commission'], 2) }}</td></tr>
+            @if(($metrics['paid_override_commission'] ?? 0) > 0)
+            <tr><td class="label">Override Commission</td><td class="value">LKR {{ number_format($metrics['paid_override_commission'], 2) }}</td></tr>
+            @endif
+            @elseif(isset($metrics['total_commission']) && $metrics['total_commission'] > 0)
             <tr><td class="label">Commission</td><td class="value">+ LKR {{ number_format($metrics['total_commission'], 2) }}</td></tr>
             @endif
-            <tr class="total-row"><td>Gross Pay</td><td class="value">LKR {{ number_format($metrics['how_much_paid'] ?? 0, 2) }}</td></tr>
+            <tr class="total-row"><td>Gross Pay (Month)</td><td class="value">LKR {{ number_format($metrics['how_much_paid'] ?? 0, 2) }}</td></tr>
         </table>
     </div>
-    @endif
 
-    @if(($metrics['total_deductions'] ?? 0) > 0 && !isset($metrics['payroll_records']) )
+    @if(($metrics['total_deductions'] ?? 0) > 0)
     <div class="section">
         <div class="section-title">Deductions</div>
         <table>
             @if(($metrics['epf'] ?? 0) > 0)
-            <tr><td class="label">EPF (Employee 8%)</td><td class="value">LKR {{ number_format($metrics['epf'], 2) }}</td></tr>
+            <tr><td class="label">EPF (Employee 8%)</td><td class="value">- LKR {{ number_format($metrics['epf'], 2) }}</td></tr>
             @endif
             @if(($metrics['income_tax'] ?? 0) > 0)
-            <tr><td class="label">Income Tax (PAYE)</td><td class="value">LKR {{ number_format($metrics['income_tax'], 2) }}</td></tr>
+            <tr><td class="label">Income Tax (PAYE)</td><td class="value">- LKR {{ number_format($metrics['income_tax'], 2) }}</td></tr>
             @endif
             @if(($metrics['wht_tax'] ?? 0) > 0)
-            <tr><td class="label">WHT (Withholding Tax 5%)</td><td class="value">LKR {{ number_format($metrics['wht_tax'], 2) }}</td></tr>
+            <tr><td class="label">WHT (Withholding Tax 5%)</td><td class="value">- LKR {{ number_format($metrics['wht_tax'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['apiit_tax'] ?? 0) > 0)
+            <tr><td class="label">APIT (Advance Income Tax)</td><td class="value">- LKR {{ number_format($metrics['apiit_tax'], 2) }}</td></tr>
+            @endif
+            @if(($metrics['stamp_fee'] ?? 0) > 0)
+            <tr><td class="label">Stamp Fee</td><td class="value">- LKR {{ number_format($metrics['stamp_fee'], 2) }}</td></tr>
             @endif
             @if(($metrics['recover_amount'] ?? 0) > 0)
-            <tr><td class="label">Recover Amount (CDP)</td><td class="value">LKR {{ number_format($metrics['recover_amount'], 2) }}</td></tr>
+            <tr><td class="label">Recover Amount (CDP)</td><td class="value">- LKR {{ number_format($metrics['recover_amount'], 2) }}</td></tr>
             @endif
             @if(!empty($metrics['loan_deductions']))
             @foreach($metrics['loan_deductions'] as $ld)
-            <tr><td class="label">{{ $ld['label'] }}</td><td class="value">LKR {{ number_format($ld['amount'], 2) }}</td></tr>
+            <tr><td class="label">{{ is_array($ld) ? ($ld['label'] ?? 'Loan') : 'Loan' }}</td><td class="value">- LKR {{ number_format(is_array($ld) ? ($ld['amount'] ?? 0) : 0, 2) }}</td></tr>
             @endforeach
             @endif
-            <tr class="total-row"><td>Total Deductions</td><td class="value">LKR {{ number_format($metrics['total_deductions'], 2) }}</td></tr>
+            <tr class="total-row"><td>Total Deductions</td><td class="value">- LKR {{ number_format($metrics['total_deductions'], 2) }}</td></tr>
         </table>
     </div>
     @endif
 
-    @if(!isset($metrics['payroll_records']))
     <div class="section">
         <table>
-            <tr class="total-row"><td><strong>Net Pay</strong></td><td class="value"><strong>LKR {{ number_format(($metrics['how_much_paid'] ?? 0) - ($metrics['total_deductions'] ?? 0), 2) }}</strong></td></tr>
+            <tr class="total-row"><td><strong>Net Pay (Month)</strong></td><td class="value"><strong>LKR {{ number_format($metrics['net_pay'] ?? (($metrics['how_much_paid'] ?? 0) - ($metrics['total_deductions'] ?? 0)), 2) }}</strong></td></tr>
         </table>
     </div>
-    @endif
     @endif
 
     @if(!isset($metrics) && isset($payroll) && $payroll->basic > 0)

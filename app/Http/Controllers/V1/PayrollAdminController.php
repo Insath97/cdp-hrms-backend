@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\CdpConnectService;
 use App\Services\LoanDeductionService;
 use App\Services\PayrollActivationService;
+use App\Services\PayrollSettingsService;
 use App\Services\SriLankanTaxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -139,9 +140,24 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'payment_percentage' => 0,
                 'payment_criteria' => 'No',
                 'calculated_payment' => 0,
+                'net_pay' => 0,
+                'is_sales' => false,
             ];
 
-            if ($employee && $employee->employee_code) {
+            // Month-total net pay from stored payroll records (sum of the
+            // 5th/15th/20th payments) — this is the figure HR approves.
+            if ($payslipRequest->user_id && $period) {
+                $metrics['net_pay'] = round((float) PayrollRecord::where('user_id', $payslipRequest->user_id)
+                    ->where('month', $period)
+                    ->sum('net'), 2);
+            }
+
+            $deptForMetrics = $employee?->department;
+            $isSalesStaff = $deptForMetrics && strtolower($deptForMetrics->name) === 'sales';
+            $metrics['is_sales'] = $isSalesStaff;
+
+            // Non-sales staff have no CDP data — skip the external call.
+            if ($employee && $employee->employee_code && $isSalesStaff) {
                 try {
                     $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
                     if ($cdpUser && isset($cdpUser['metrics'])) {
@@ -197,6 +213,10 @@ class PayrollAdminController extends Controller implements HasMiddleware
                             'payment_criteria' => $paymentCriteria,
                             'calculated_payment' => $calculatedPayment,
                             'total_package' => $totalPackage,
+                            // Keep the month-total net pay computed above from
+                            // stored records — this is the figure HR approves.
+                            'net_pay' => $metrics['net_pay'],
+                            'is_sales' => $isSalesStaff,
                         ];
                     }
                 } catch (\Throwable $th) {
@@ -323,8 +343,19 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     $metrics['monthly_target'] = $getSalaryField('monthly_target');
                 }
 
+                $deptForCdp = $employee?->department;
+                $isSalesStaff = $deptForCdp && strtolower($deptForCdp->name) === 'sales';
+
+                // Non-sales staff have no CDP data (no metrics, no recover
+                // amounts) — skip the external call entirely for them.
+                $metrics['commission'] = 0;
+                $metrics['override_commission'] = 0;
+                $metrics['total_commission'] = 0;
+                $metrics['recover_amount'] = 0;
+                $metrics['is_sales'] = $isSalesStaff;
+
                 $cdpService = app(CdpConnectService::class);
-                $cdpUser = $employee?->employee_code ? $cdpService->fetchEmployeeMetrics($employee->employee_code, $period) : null;
+                $cdpUser = ($isSalesStaff && $employee?->employee_code) ? $cdpService->fetchEmployeeMetrics($employee->employee_code, $period) : null;
                 $achievement = null;
                 if ($cdpUser && isset($cdpUser['metrics'])) {
                     $m = $cdpUser['metrics'];
@@ -383,6 +414,17 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 $metrics['net_pay'] = 0;
                 $metrics['loan_deductions'] = [];
                 $metrics['loan_deductions_total'] = 0;
+                // Component totals actually paid across the 5th/15th/20th
+                // records (shown itemized in Earnings on the payslip).
+                $metrics['paid_basic'] = 0;
+                $metrics['paid_travel'] = 0;
+                $metrics['paid_vehicle'] = 0;
+                $metrics['paid_incentive'] = 0;
+                $metrics['paid_performance'] = 0;
+                $metrics['paid_position'] = 0;
+                $metrics['paid_mobile'] = 0;
+                $metrics['paid_commission'] = 0;
+                $metrics['paid_override_commission'] = 0;
 
                 if ($records->isNotEmpty()) {
                     foreach ($records as $rec) {
@@ -396,6 +438,15 @@ class PayrollAdminController extends Controller implements HasMiddleware
                         $metrics['recover_amount'] = round($metrics['recover_amount'] + (float) $rec->recover_amount, 2);
                         $metrics['total_deductions'] = round($metrics['total_deductions'] + (float) $rec->total_deductions, 2);
                         $metrics['net_pay'] = round($metrics['net_pay'] + (float) $rec->net, 2);
+                        $metrics['paid_basic'] = round($metrics['paid_basic'] + (float) $rec->basic, 2);
+                        $metrics['paid_travel'] = round($metrics['paid_travel'] + (float) $rec->travel_reimbursement, 2);
+                        $metrics['paid_vehicle'] = round($metrics['paid_vehicle'] + (float) $rec->vehicle_rental, 2);
+                        $metrics['paid_incentive'] = round($metrics['paid_incentive'] + (float) $rec->incentive, 2);
+                        $metrics['paid_performance'] = round($metrics['paid_performance'] + (float) $rec->performance_allowance, 2);
+                        $metrics['paid_position'] = round($metrics['paid_position'] + (float) $rec->position_allowance, 2);
+                        $metrics['paid_mobile'] = round($metrics['paid_mobile'] + (float) $rec->mobile_payment, 2);
+                        $metrics['paid_commission'] = round($metrics['paid_commission'] + (float) $rec->commission, 2);
+                        $metrics['paid_override_commission'] = round($metrics['paid_override_commission'] + (float) $rec->override_commission, 2);
                     }
 
                     $loanItems = LoanDeductionService::activeForPeriod((int) ($employee?->id ?? 0), (string) $period);
@@ -405,6 +456,26 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     // Fallback (no processed records yet): recompute single-pay metrics
                     $metrics['recover_amount'] = 0;
                     $metrics['how_much_paid'] = round($metrics['calculated_payment'] + $metrics['total_commission'], 2);
+
+                    // Non-sales staff are paid fuel/vehicle at exact package
+                    // amounts (non-permanent staff also draw basic in the 20th
+                    // payment), so include them in the preview.
+                    if (! $isSalesStaff) {
+                        $metrics['how_much_paid'] = round($metrics['how_much_paid'] + ($metrics['travel_reimbursement'] ?? 0) + ($metrics['vehicle_allowance'] ?? 0), 2);
+                        if (! $isPermanent) {
+                            $metrics['how_much_paid'] = round($metrics['how_much_paid'] + ($metrics['basic_salary'] ?? 0), 2);
+                        }
+                    }
+
+                    // Payslip Earnings preview mirrors the package values when
+                    // no stored payment records exist yet.
+                    $metrics['paid_basic'] = (float) ($metrics['basic_salary'] ?? 0);
+                    $metrics['paid_travel'] = (float) ($metrics['travel_reimbursement'] ?? 0);
+                    $metrics['paid_vehicle'] = (float) ($metrics['vehicle_allowance'] ?? 0);
+                    $metrics['paid_incentive'] = (float) ($metrics['incentive'] ?? 0);
+                    $metrics['paid_performance'] = (float) ($metrics['performance_allowance'] ?? 0);
+                    $metrics['paid_position'] = (float) ($metrics['position_allowance'] ?? 0);
+                    $metrics['paid_mobile'] = (float) ($metrics['mobile_payment'] ?? 0);
 
                     $epfEmployee = 0.0;
                     $incomeTax = 0.0;
@@ -427,7 +498,21 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     }
                     $metrics['wht_tax'] = $whtTax;
 
-                    $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'] + $loanDeductions['total'] + $whtTax, 2);
+                    // Stamp duty mirrors PayrollCalculationService: sales staff pay it
+                    // on the commission payment, permanent non-sales staff pay it when
+                    // basic + fuel + vehicle exceeds the configured threshold.
+                    $stampFee = 0.0;
+                    if ($metrics['how_much_paid'] > 0) {
+                        if ($isSalesStaff) {
+                            $stampFee = PayrollSettingsService::stampFeeAmount();
+                        } elseif ($isPermanent
+                            && ($metrics['basic_salary'] + $metrics['travel_reimbursement'] + $metrics['vehicle_allowance']) > PayrollSettingsService::stampFeeThreshold()) {
+                            $stampFee = PayrollSettingsService::stampFeeAmount();
+                        }
+                    }
+                    $metrics['stamp_fee'] = $stampFee;
+
+                    $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'] + $loanDeductions['total'] + $whtTax + $stampFee, 2);
                     $metrics['net_pay'] = round($metrics['how_much_paid'] - $metrics['total_deductions'], 2);
                 }
             } catch (\Throwable $th) {

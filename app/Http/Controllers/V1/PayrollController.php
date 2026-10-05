@@ -11,6 +11,7 @@ use App\Models\Employee;
 use App\Services\CdpConnectService;
 use App\Services\LoanDeductionService;
 use App\Services\PayrollActivationService;
+use App\Services\PayrollSettingsService;
 use App\Services\SriLankanTaxService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -475,7 +476,12 @@ class PayrollController extends Controller implements HasMiddleware
             $achievementAmount = 0.0;
             $recoverAmount = 0.0;
 
-            if ($employee->employee_code) {
+            $deptForMetrics = $employee->department;
+            $isSalesStaff = $deptForMetrics && strtolower($deptForMetrics->name) === 'sales';
+
+            // Non-sales staff have no CDP data (no metrics, no recover amounts),
+            // so the external call is skipped entirely for them.
+            if ($isSalesStaff && $employee->employee_code) {
                 $cdpUser = $cdpService->fetchEmployeeMetrics($employee->employee_code, $period);
 
                 \Log::info('CDP User Response', [
@@ -568,6 +574,17 @@ class PayrollController extends Controller implements HasMiddleware
             $mobilePayment = $getSalaryField('mobile_payment');
             $howMuchPaid = $calculatedPayment + $mobilePaymentBonus + $totalCommission;
 
+            // Non-sales staff are paid fuel and vehicle at exact package
+            // amounts (and non-permanent staff draw basic in the 20th payment),
+            // so the preview must include them instead of showing only the
+            // achievement-derived figure.
+            if (! $isSalesStaff) {
+                $howMuchPaid = round($howMuchPaid + $travelReimbursement + $vehicleAllowance, 2);
+                if (! $isPermanent) {
+                    $howMuchPaid = round($howMuchPaid + $basicSalary, 2);
+                }
+            }
+
             // Deductions: EPF (8% of basic) + PAYE tax (on howMuchPaid) apply only to permanent staff.
             // CDP recover amount applies to everyone.
             $epfEmployee = 0.0;
@@ -588,12 +605,25 @@ class PayrollController extends Controller implements HasMiddleware
             $loanDeductionItems  = $loanDeductions['items'];
             $loanDeductionsTotal = $loanDeductions['total'];
 
-            $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount + $loanDeductionsTotal, 2);
+            // $isSalesStaff was determined above (before the CDP fetch).
+            // Stamp duty mirrors PayrollCalculationService: sales staff pay it on the
+            // commission payment, permanent non-sales staff pay it when basic + fuel +
+            // vehicle exceeds the configured threshold. Overridden below when stored
+            // payroll records exist.
+            $stampFee = 0.0;
+            if ($howMuchPaid > 0) {
+                if ($isSalesStaff) {
+                    $stampFee = PayrollSettingsService::stampFeeAmount();
+                } elseif ($isPermanent
+                    && ($basicSalary + $travelReimbursement + $vehicleAllowance) > PayrollSettingsService::stampFeeThreshold()) {
+                    $stampFee = PayrollSettingsService::stampFeeAmount();
+                }
+            }
+
+            $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount + $loanDeductionsTotal + $stampFee, 2);
 
             // WHT (5% for non-permanent sales staff when howMuchPaid > 100,000)
             $whtTax = 0.0;
-            $deptForWht = $employee->department;
-            $isSalesStaff = $deptForWht && strtolower($deptForWht->name) === 'sales';
             if (!$isPermanent && $isSalesStaff && $howMuchPaid > 100000) {
                 $whtTax = round($howMuchPaid * 0.05, 2);
             }
@@ -623,8 +653,9 @@ class PayrollController extends Controller implements HasMiddleware
                 $totalDeductions = round($payrollRecords->sum('total_deductions'), 2);
                 $netPay        = round($payrollRecords->sum('net'), 2);
             } else {
+                // No stored records: keep the freshly calculated $stampFee,
+                // $totalDeductions and $netPay computed above.
                 $apiitTax = 0.0;
-                $stampFee = 0.0;
                 $payrollRecords = collect();
             }
 
@@ -669,6 +700,10 @@ class PayrollController extends Controller implements HasMiddleware
                     'net_pay' => $netPay,
                     'period' => $period,
                     'metrics_found' => ! $metricsNotFound,
+                    // Non-sales staff have no CDP performance metrics; their pay
+                    // does not depend on achievement, so clients must not wait
+                    // for (or gate on) metrics for them.
+                    'is_sales' => $isSalesStaff,
                     'payroll_records' => $payrollRecords->values(),
                 ],
             ]);

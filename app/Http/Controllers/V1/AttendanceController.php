@@ -25,11 +25,11 @@ class AttendanceController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Attendance Index', only: ['index', 'show']),
+            new Middleware('permission:Attendance Index|Attendance View Team|Attendance View Company', only: ['index', 'show']),
             new Middleware('permission:Attendance Create', only: ['store']),
-            new Middleware('permission:Attendance Update', only: ['update', 'clockOut']),
+            new Middleware('permission:Attendance Update|Attendance Correct', only: ['update', 'clockOut']),
             new Middleware('permission:Attendance Delete', only: ['destroy', 'forceDelete', 'restore']),
-            new Middleware('permission:Attendance Report', only: ['dailyReport', 'weeklyReport', 'monthlyReport']),
+            new Middleware('permission:Attendance Report|Attendance View Company', only: ['dailyReport', 'weeklyReport', 'monthlyReport']),
         ];
     }
 

@@ -66,12 +66,13 @@ class PayrollCalculationService
         $department = $employee->department;
         $isSales = $department && strtolower($department->name) === 'sales';
 
-        // CDP metrics
+        // CDP metrics (and recover amounts) exist only for sales staff —
+        // the external call is skipped entirely for everyone else.
         $achievement = 0.0;
         $commission = 0.0;
         $overrideCommission = 0.0;
         $recoverAmount = 0.0;
-        if ($employee->employee_code) {
+        if ($isSales && $employee->employee_code) {
             $cdpUser = app(CdpConnectService::class)->fetchEmployeeMetrics($employee->employee_code, $period);
             if ($cdpUser && isset($cdpUser['metrics'])) {
                 $m = $cdpUser['metrics'];
@@ -182,13 +183,17 @@ class PayrollCalculationService
         }
 
         // ── 20th: Allowance (everyone) ─────────────────────────────────────
-        $scaledFuel = $scaled($fuel);
-        $scaledVehicle = $scaled($vehicleAllowance);
+        // Non-sales staff are not measured on achievement: fuel and vehicle
+        // are paid at the exact package amounts, and APIIT is Charged on the
+        // full package — none of it is scaled by metrics.
+        $scaledFuel = $isSales ? $scaled($fuel) : round($fuel, 2);
+        $scaledVehicle = $isSales ? $scaled($vehicleAllowance) : round($vehicleAllowance, 2);
+        $apiitBase = $isSales ? $scaled($totalPackage) : (float) $totalPackage;
 
         $allowanceRecord = null;
         if ($isPermanent) {
             // fuel + vehicle allowance - APIIT
-            $apiitTax = SriLankanTaxService::apiit($scaled($totalPackage));
+            $apiitTax = SriLankanTaxService::apiit($apiitBase);
             $howMuchPaid = round($scaledFuel + $scaledVehicle, 2);
 
             if ($howMuchPaid > 0 || $apiitTax > 0) {

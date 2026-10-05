@@ -27,17 +27,17 @@ class BulkImportService
     public function getImportableConfig(): array
     {
         return [
-            'countries' => [
-                'model' => Country::class,
-                'unique_key' => 'code',
-                'fillable' => ['name', 'code', 'is_active'],
-            ],
+            // 'countries' => [
+            //     'model' => Country::class,
+            //     'unique_key' => 'code',
+            //     'fillable' => ['name', 'code', 'is_active'],
+            // ],
             'provinces' => [
                 'model' => Province::class,
                 'unique_key' => 'code',
-                'dependencies' => [
-                    'country_code' => ['model' => Country::class, 'field' => 'code', 'foreign_key' => 'country_id']
-                ],
+                // 'dependencies' => [
+                //     'country_code' => ['model' => Country::class, 'field' => 'code', 'foreign_key' => 'country_id']
+                // ],
                 'fillable' => ['name', 'code', 'is_active', 'country_id'],
             ],
             'zonals' => [
@@ -92,7 +92,7 @@ class BulkImportService
                     'designation_code' => ['model' => Designation::class, 'field' => 'code', 'foreign_key' => 'designation_id'],
                 ],
                 'fillable' => [
-                    'f_name', 'l_name', 'full_name', 'name_with_initials', 'employee_code', 'profile_image',
+                    'f_name', 'l_name', 'full_name', 'name_with_initials', 'initials', 'surname', 'employee_code', 'profile_image',
                     'reporting_manager_id', 'province_id', 'region_id', 'zonal_id', 'branch_id', 'department_id',
                     'designation_id', 'employee_type', 'id_type', 'id_number', 'date_of_birth', 'email',
                     'address_line1', 'city', 'state', 'country', 'postal_code', 'phone_primary', 'phone_secondary',

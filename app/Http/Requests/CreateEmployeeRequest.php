@@ -23,6 +23,8 @@ class CreateEmployeeRequest extends FormRequest
             'l_name' => 'required|string|max:255',
             'full_name' => 'required|string|max:255',
             'name_with_initials' => 'required|string|max:255',
+            'initials' => ['nullable', 'string', 'max:255', 'regex:/^[a-zA-Z]+(\s+[a-zA-Z]+)*$/'],
+            'surname' => 'nullable|string|max:255',
             'employee_code' => 'nullable|sometimes|string|unique:employees,employee_code|max:50',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'reporting_manager_id' => 'nullable|exists:employees,id',
@@ -96,7 +98,8 @@ class CreateEmployeeRequest extends FormRequest
         $nullableFields = [
             'email', 'phone', 'phone_secondary', 'whatsapp_number',
             'address_line_1', 'city', 'state', 'postal_code',
-            'bank_name', 'bank_branch', 'account_number', 'description', 'bank_id'
+            'bank_name', 'bank_branch', 'account_number', 'description', 'bank_id',
+            'initials', 'surname'
         ];
 
         $merge = [];
@@ -112,7 +115,7 @@ class CreateEmployeeRequest extends FormRequest
 
         // Normalize exotic Unicode fonts (copy-paste issues) for text fields
         $normalizeFields = [
-            'f_name', 'l_name', 'full_name', 'name_with_initials', 'email',
+            'f_name', 'l_name', 'full_name', 'name_with_initials', 'initials', 'surname', 'email',
             'address_line_1', 'city', 'state', 'country',
             'bank_name', 'bank_branch', 'description', 'extension_reason',
         ];
@@ -131,6 +134,13 @@ class CreateEmployeeRequest extends FormRequest
         if (!empty($merge)) {
             $this->merge($merge);
         }
+    }
+
+    public function messages(): array
+    {
+        return [
+            'initials.regex' => 'Initials may only contain letters and spaces, e.g. "K D S".',
+        ];
     }
 
     protected function failedValidation(Validator $validator)

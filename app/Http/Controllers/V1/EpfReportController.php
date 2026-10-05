@@ -7,12 +7,37 @@ use App\Models\Employee;
 use App\Models\PayrollRecord;
 use App\Models\PayrollDeduction;
 use App\Services\LoanDeductionService;
+use App\Services\PayrollActivationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EpfReportController extends Controller
 {
+    /**
+     * Mirror the CUS report: expose nothing until the month has been activated
+     * and its payroll processed. Returns a 403 response when blocked, or null
+     * when the report may be shown.
+     */
+    private function guardMonth(string $periodYm): ?\Illuminate\Http\JsonResponse
+    {
+        if (! PayrollActivationService::canView($periodYm, Auth::user())) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Payroll for this month has not been activated yet.',
+            ], 403);
+        }
+
+        if (! PayrollRecord::where('month', $periodYm)->where('status', 'processed')->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Payroll has not been processed for this month yet.',
+            ], 403);
+        }
+
+        return null;
+    }
     /**
      * EPF Report CSV.
      * Filters employees whose employee_code does NOT contain "RT".
@@ -40,6 +65,10 @@ class EpfReportController extends Controller
         $periodYyyymm = $period->format('Ym');
         $employerNumber = $request->get('employer_number', '');
         $occupationGrade = $request->get('occupation_grade', '');
+
+        if ($blocked = $this->guardMonth($periodYm)) {
+            return $blocked;
+        }
 
         // All employees whose employee_code does NOT contain "RT" (case-sensitive matching as per spec: "dont have RT")
         $employees = Employee::with(['designation', 'salaryDetail'])
@@ -154,6 +183,10 @@ class EpfReportController extends Controller
         }
         $periodYm = $period->format('Y-m');
         $periodYyyymm = $period->format('Ym');
+
+        if ($blocked = $this->guardMonth($periodYm)) {
+            return $blocked;
+        }
 
         $employees = Employee::with(['designation'])
             ->whereRaw("employee_code NOT LIKE '%RT%'")
@@ -302,6 +335,8 @@ class EpfReportController extends Controller
 
     private function resolveSurname(Employee $emp): string
     {
+        $surname = trim((string)($emp->surname ?? ''));
+        if ($surname !== '') return $surname;
         $surname = trim((string)($emp->l_name ?? ''));
         if ($surname !== '') return $surname;
         $full = trim((string)($emp->full_name ?? ''));
@@ -312,6 +347,8 @@ class EpfReportController extends Controller
 
     private function resolveInitials(Employee $emp): string
     {
+        $initials = trim((string)($emp->initials ?? ''));
+        if ($initials !== '') return $initials;
         return trim((string)($emp->name_with_initials ?? ''));
     }
 }

@@ -37,6 +37,8 @@ class Employee extends Model
         'l_name',
         'full_name',
         'name_with_initials',
+        'initials',
+        'surname',
         'employee_code',
         'profile_image',
         'reporting_manager_id',

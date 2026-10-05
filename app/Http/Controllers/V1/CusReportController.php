@@ -38,16 +38,15 @@ class CusReportController extends Controller
      * Header labels for the upload file, in the order the bank expects them.
      */
     private const HEADERS = [
-        'Type',
-        'To account',
-        'Amount',
-        'Sender Description',
-        'Beneficiary Description',
-        'Beneficiary Name',
-        'Beneficiary ID',
-        'SWIFT Code',
-        'Purpose Code',
-        'Purpose Description',
+        'TYPE',
+        'TO_ACCOUNT',
+        'AMOUNT',
+        'SENDER DESCRIPTION',
+        'BENEFICIARY DESCRIPTION',
+        'BENEFICIARY NAME',
+        'BENEFICIARY ID',
+        'SWIFT CODE',
+        'PURPOSE CODE',
     ];
 
     /**
@@ -179,7 +178,6 @@ class CusReportController extends Controller
                     $r['beneficiary_id'],
                     $r['swift_code'],
                     $purpose['code'],
-                    $purpose['description'],
                 ]);
             }
             fclose($out);
@@ -271,8 +269,8 @@ class CusReportController extends Controller
             // Data rows
             foreach ($rows as $r) {
                 echo '   <Row>' . "\r\n";
-                // Type
-                echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($r['type']) . '</Data></Cell>' . "\r\n";
+                // Type (numeric: 1 = commercial, 2 = other bank)
+                echo '    <Cell><Data ss:Type="Number">' . ((int) $r['type']) . '</Data></Cell>' . "\r\n";
                 // To account (treated strictly as string to preserve leading zeroes)
                 echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($r['to_account']) . '</Data></Cell>' . "\r\n";
                 // Amount
@@ -289,8 +287,6 @@ class CusReportController extends Controller
                 echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($r['swift_code']) . '</Data></Cell>' . "\r\n";
                 // Purpose Code
                 echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($purpose['code']) . '</Data></Cell>' . "\r\n";
-                // Purpose Description
-                echo '    <Cell><Data ss:Type="String">' . $escape($purpose['description']) . '</Data></Cell>' . "\r\n";
                 echo '   </Row>' . "\r\n";
             }
 
