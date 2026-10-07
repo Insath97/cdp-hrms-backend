@@ -481,7 +481,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     $incomeTax = 0.0;
                     if ($isPermanent) {
                         $epfEmployee = SriLankanTaxService::epfEmployee($metrics['basic_salary']);
-                        $incomeTax = SriLankanTaxService::paye($metrics['how_much_paid']);
+                        $incomeTax = SriLankanTaxService::paye($metrics['how_much_paid'], [
+                            'process'       => 'admin_metrics_preview',
+                            'employee_code' => $employee?->employee_code,
+                            'period'        => (string) $period,
+                        ]);
                     }
                     $metrics['epf'] = round($epfEmployee, 2);
                     $metrics['income_tax'] = round($incomeTax, 2);

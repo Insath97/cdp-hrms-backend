@@ -13,18 +13,33 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+
 
 /**
  * CUS (Corporate/Company Upload Sheet) salary upload report.
  *
- * Produces the fixed-width record layout required for the bank salary upload:
- * one row per employee for a single salary cycle (5th / 15th / 20th).
+ * Produces the bank salary upload using the original CUS Excel template.
+ *
+ * The template is used as the source of truth for:
+ * - formatting
+ * - borders
+ * - colours
+ * - fonts
+ * - formulas
+ * - validation/helper columns
+ * - column widths
+ * - worksheet structure
  */
 class CusReportController extends Controller
 {
     /**
-     * Salary cycles. The pay_day enum is the 5th / 15th / 20th cycle.
+     * Salary cycles.
      */
     public const PAY_DAYS = [
         'basic' => '5th',
@@ -35,7 +50,17 @@ class CusReportController extends Controller
     private const DEFAULT_PURPOSE_CODE = '784001';
 
     /**
-     * Header labels for the upload file, in the order the bank expects them.
+     * CUS Excel template.
+     *
+     * Store the original template at:
+     *
+     * storage/app/templates/Salary_Cus_File_Format.xlsm
+     */
+    private const TEMPLATE_PATH =
+        'templates/Salary_Cus_File_Format.xlsm';
+
+    /**
+     * Header labels for the upload file.
      */
     private const HEADERS = [
         'TYPE',
@@ -50,6 +75,18 @@ class CusReportController extends Controller
     ];
 
     /**
+     * Data starts from row 6 in the original CUS template.
+     */
+    private const DATA_START_ROW = 6;
+
+    /**
+     * Maximum data row in the original template.
+     *
+     * The supplied template has rows up to 5005.
+     */
+    private const DATA_END_ROW = 5005;
+
+    /**
      * JSON preview of the upload file.
      */
     public function preview(Request $request): JsonResponse
@@ -62,8 +99,12 @@ class CusReportController extends Controller
         ]);
 
         $month = $this->normalizeMonth($validated['month']);
+
         if ($month === null) {
-            return response()->json(['status' => 'error', 'message' => 'Invalid month format. Use YYYY-MM.'], 422);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid month format. Use YYYY-MM.',
+            ], 422);
         }
 
         if (!PayrollActivationService::canView($month, Auth::user())) {
@@ -75,14 +116,24 @@ class CusReportController extends Controller
 
         $payDay = $validated['pay_day'];
         $bankFilter = $validated['bank'] ?? 'all';
-        $purpose = $this->resolvePurposeCode($validated['purpose_code'] ?? null);
+
+        $purpose = $this->resolvePurposeCode(
+            $validated['purpose_code'] ?? null
+        );
+
         $purposeCode = $purpose['code'];
         $purposeDescription = $purpose['description'];
+
         $senderDescription = $this->senderDescription($month);
 
-        $rows = $this->buildRows($month, $payDay, $bankFilter);
+        $rows = $this->buildRows(
+            $month,
+            $payDay,
+            $bankFilter
+        );
 
         $totalAmount = 0.0;
+
         foreach ($rows as $row) {
             $totalAmount += (float) $row['amount'];
         }
@@ -98,7 +149,8 @@ class CusReportController extends Controller
                 'purpose_code' => $purposeCode,
                 'purpose_description' => $purposeDescription,
                 'count' => count($rows),
-                'total_amount' => BankAccountFormatService::formatAmount($totalAmount),
+                'total_amount' =>
+                    BankAccountFormatService::formatAmount($totalAmount),
                 'skipped' => $this->skippedCount,
                 'skipped_details' => $this->skippedDetails,
                 'rows' => $rows,
@@ -107,10 +159,17 @@ class CusReportController extends Controller
     }
 
     /**
-     * Download the upload file.
+     * Download the CUS upload file.
+     *
+     * Excel/XLSM:
+     * Uses the original CUS template.
+     *
+     * CSV:
+     * Creates a normal CSV file.
      */
-    public function download(Request $request): StreamedResponse|JsonResponse
-    {
+    public function download(
+        Request $request
+    ): StreamedResponse|BinaryFileResponse|JsonResponse {
         $validated = $request->validate([
             'month' => 'required|string',
             'pay_day' => 'required|string|in:basic,commission,allowance',
@@ -120,24 +179,40 @@ class CusReportController extends Controller
         ]);
 
         $month = $this->normalizeMonth($validated['month']);
+
         if ($month === null) {
-            return response()->json(['status' => 'error', 'message' => 'Invalid month format. Use YYYY-MM.'], 422);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid month format. Use YYYY-MM.',
+            ], 422);
         }
 
         if (!PayrollActivationService::canView($month, Auth::user())) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Payroll for this month has not been activated yet.',
+                'message' =>
+                    'Payroll for this month has not been activated yet.',
             ], 403);
         }
 
         $payDay = $validated['pay_day'];
         $bankFilter = $validated['bank'] ?? 'all';
-        $purpose = $this->resolvePurposeCode($validated['purpose_code'] ?? null);
-        $senderDescription = $this->senderDescription($month);
-        $format = strtolower($validated['format'] ?? 'excel');
 
-        $rows = $this->buildRows($month, $payDay, $bankFilter);
+        $purpose = $this->resolvePurposeCode(
+            $validated['purpose_code'] ?? null
+        );
+
+        $senderDescription = $this->senderDescription($month);
+
+        $format = strtolower(
+            $validated['format'] ?? 'excel'
+        );
+
+        $rows = $this->buildRows(
+            $month,
+            $payDay,
+            $bankFilter
+        );
 
         $bankLabel = match ($bankFilter) {
             'commercial' => 'COMMERCIAL',
@@ -145,17 +220,28 @@ class CusReportController extends Controller
             default => 'ALL',
         };
 
+        /*
+         * Use the original XLSM template for Excel downloads.
+         */
         if (in_array($format, ['excel', 'xlsx', 'xls'], true)) {
             $filename = sprintf(
-                'CUS_%s_%s_%s.xls',
+                'CUS_%s_%s_%s.xlsx',
                 $payDay,
                 $bankLabel,
                 $month
             );
 
-            return $this->downloadExcelXml($filename, $rows, $senderDescription, $purpose);
+            return $this->downloadExcelTemplate(
+                $filename,
+                $rows,
+                $senderDescription,
+                $purpose
+            );
         }
 
+        /*
+         * CSV download.
+         */
         $filename = sprintf(
             'CUS_%s_%s_%s.csv',
             $payDay,
@@ -163,10 +249,23 @@ class CusReportController extends Controller
             $month
         );
 
-        $callback = function () use ($rows, $senderDescription, $purpose) {
+        $callback = function () use (
+            $rows,
+            $senderDescription,
+            $purpose
+        ) {
             $out = fopen('php://output', 'w');
-            fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+            /*
+             * UTF-8 BOM.
+             */
+            fprintf(
+                $out,
+                chr(0xEF) . chr(0xBB) . chr(0xBF)
+            );
+
             fputcsv($out, self::HEADERS);
+
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r['type'],
@@ -180,130 +279,523 @@ class CusReportController extends Controller
                     $purpose['code'],
                 ]);
             }
+
             fclose($out);
         };
 
-        return new StreamedResponse($callback, 200, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-            'Cache-Control' => 'no-cache, no-store, must-revalidate',
-            'Pragma' => 'no-cache',
-        ]);
+        return new StreamedResponse(
+            $callback,
+            200,
+            [
+                'Content-Type' => 'text/csv; charset=UTF-8',
+                'Content-Disposition' =>
+                    "attachment; filename=\"{$filename}\"",
+                'Cache-Control' =>
+                    'no-cache, no-store, must-revalidate',
+                'Pragma' => 'no-cache',
+            ]
+        );
     }
 
     /**
-     * Generate Excel XML spreadsheet format (.xls) opened natively by Microsoft Excel.
-     * Preserves account numbers as text so leading zeros aren't dropped and numbers don't convert to scientific notation.
+     * Generate the Excel report using the original CUS template.
+     *
+     * IMPORTANT:
+     * We do NOT create a new spreadsheet.
+     *
+     * We load the original template and only replace the
+     * report data in C:K.
+     *
+     * This allows the original template to retain its:
+     * - colours
+     * - borders
+     * - fonts
+     * - formulas
+     * - conditional formatting
+     * - helper columns
+     * - validation structure
+     * - worksheet structure
+     * - column widths
+     * - row heights
      */
-    private function downloadExcelXml(string $filename, array $rows, string $senderDescription, array $purpose): StreamedResponse
-    {
-        $callback = function () use ($rows, $senderDescription, $purpose) {
-            $escape = fn ($val) => htmlspecialchars((string) $val, ENT_XML1, 'UTF-8');
+    private function downloadExcelTemplate(
+        string $filename,
+        array $rows,
+        string $senderDescription,
+        array $purpose
+    ): BinaryFileResponse {
+        $templatePath = storage_path(
+            'app/' . self::TEMPLATE_PATH
+        );
 
-            echo '<?xml version="1.0" encoding="UTF-8"?>' . "\r\n";
-            echo '<?mso-application progid="Excel.Sheet"?>' . "\r\n";
-            echo '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"' . "\r\n";
-            echo ' xmlns:o="urn:schemas-microsoft-com:office:office"' . "\r\n";
-            echo ' xmlns:x="urn:schemas-microsoft-com:office:excel"' . "\r\n";
-            echo ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"' . "\r\n";
-            echo ' xmlns:html="http://www.w3.org/TR/REC-html40">' . "\r\n";
-            echo ' <Styles>' . "\r\n";
-            echo '  <Style ss:ID="Header">' . "\r\n";
-            echo '   <Font ss:Bold="1" ss:Color="#FFFFFF"/>' . "\r\n";
-            echo '   <Interior ss:Color="#1E3A8A" ss:Pattern="Solid"/>' . "\r\n";
-            echo '   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>' . "\r\n";
-            echo '  </Style>' . "\r\n";
-            echo '  <Style ss:ID="Text">' . "\r\n";
-            echo '   <NumberFormat ss:Format="@"/>' . "\r\n";
-            echo '  </Style>' . "\r\n";
-            echo '  <Style ss:ID="Currency">' . "\r\n";
-            echo '   <NumberFormat ss:Format="0.00"/>' . "\r\n";
-            echo '   <Alignment ss:Horizontal="Right"/>' . "\r\n";
-            echo '  </Style>' . "\r\n";
-            echo '  <Style ss:ID="SummaryLabel">' . "\r\n";
-            echo '   <Font ss:Bold="1" ss:Color="#1E3A8A"/>' . "\r\n";
-            echo '   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>' . "\r\n";
-            echo '  </Style>' . "\r\n";
-            echo '  <Style ss:ID="SummaryValue">' . "\r\n";
-            echo '   <Font ss:Bold="1"/>' . "\r\n";
-            echo '   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>' . "\r\n";
-            echo '  </Style>' . "\r\n";
-            echo '  <Style ss:ID="SummaryCurrency">' . "\r\n";
-            echo '   <Font ss:Bold="1"/>' . "\r\n";
-            echo '   <NumberFormat ss:Format="#,##0.00"/>' . "\r\n";
-            echo '   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>' . "\r\n";
-            echo '  </Style>' . "\r\n";
-            echo ' </Styles>' . "\r\n";
-            echo ' <Worksheet ss:Name="CUS Report">' . "\r\n";
-            echo '  <Table>' . "\r\n";
+        if (!file_exists($templatePath)) {
+            abort(
+                500,
+                'CUS Excel template not found at: ' . $templatePath
+            );
+        }
 
-            // Calculate totals
-            $totalTransactions = count($rows);
-            $bulkFileAmount = 0.0;
-            foreach ($rows as $r) {
-                $bulkFileAmount += (float) ($r['amount'] ?? 0);
+        /*
+         * Load the original XLSM template.
+         *
+         * PhpSpreadsheet cannot round-trip ActiveX controls or the
+         * full VBA project — it silently drops them, causing Excel
+         * to show a repeated "format/extension don't match" warning.
+         *
+         * Since the VBA macros and ActiveX controls are NOT required
+         * for the bank upload (only the data and cell formatting
+         * matter), we strip the macros after loading and output a
+         * clean .xlsx file instead.
+         */
+        $spreadsheet = IOFactory::load($templatePath);
+
+        /*
+         * Strip VBA/macros so the output is a valid .xlsx.
+         *
+         * This removes:
+         *  - the VBA project binary (vbaProject.bin)
+         *  - the digital certificate (vbaProjectSignature.bin)
+         *  - any ActiveX control metadata
+         *
+         * Without this, PhpSpreadsheet produces a .xlsm with missing
+         * ActiveX parts, which Excel flags on every open.
+         */
+        $spreadsheet->discardMacros();
+
+        /*
+         * Get the DATA worksheet from the template.
+         */
+        $sheet = $spreadsheet->getSheetByName('DATA');
+
+        if ($sheet === null) {
+            abort(
+                500,
+                'DATA worksheet was not found in the CUS template.'
+            );
+        }
+
+        /*
+         * Hide the helper columns that are not part of the bank upload.
+         *
+         * A, B, L, M and N contain the template's own summary formulas,
+         * per-row validation helpers and VLOOKUPs. They must NOT be
+         * deleted (the summary block and row formulas reference them),
+         * so they are hidden instead. Hidden columns keep every formula
+         * working and keep the file structurally valid.
+         */
+        foreach (['A', 'B', 'L', 'M', 'N'] as $helperColumn) {
+            $sheet->getColumnDimension($helperColumn)->setVisible(false);
+        }
+
+        /*
+         * Strip characters that are illegal in XML before writing text.
+         *
+         * A single control character (e.g. pasted from bank/employee data)
+         * makes the whole workbook unreadable, and Excel responds with a
+         * repair dialog on every open.
+         */
+        $cleanText = static fn ($value): string => (string) preg_replace(
+            '/[\x00-\x08\x0B\x0C\x0E-\x1F]/u',
+            '',
+            (string) $value
+        );
+
+        /*
+         * Clear ONLY the data columns C:K.
+         *
+         * We deliberately do NOT remove rows.
+         *
+         * This is important because the template already contains
+         * formulas, formatting and validation/helper formulas
+         * down to row 5005.
+         */
+        for (
+            $row = self::DATA_START_ROW;
+            $row <= self::DATA_END_ROW;
+            $row++
+        ) {
+            for ($column = 3; $column <= 11; $column++) {
+                /*
+                 * C = 3
+                 * D = 4
+                 * E = 5
+                 * F = 6
+                 * G = 7
+                 * H = 8
+                 * I = 9
+                 * J = 10
+                 * K = 11
+                 */
+                $sheet->setCellValue(
+                    Coordinate::stringFromColumnIndex($column) . $row,
+                    null
+                );
             }
+        }
 
-            // Top Summary Row 1: No of Transactions
-            echo '   <Row>' . "\r\n";
-            echo '    <Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">No of Transactions</Data></Cell>' . "\r\n";
-            echo '    <Cell ss:StyleID="SummaryValue"><Data ss:Type="Number">' . $totalTransactions . '</Data></Cell>' . "\r\n";
-            echo '   </Row>' . "\r\n";
+        /*
+         * Write the new payroll rows.
+         */
+        $currentRow = self::DATA_START_ROW;
 
-            // Top Summary Row 2: Bulk File Amount
-            echo '   <Row>' . "\r\n";
-            echo '    <Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Bulk File Amount</Data></Cell>' . "\r\n";
-            echo '    <Cell ss:StyleID="SummaryCurrency"><Data ss:Type="Number">' . number_format($bulkFileAmount, 2, '.', '') . '</Data></Cell>' . "\r\n";
-            echo '   </Row>' . "\r\n";
+        foreach ($rows as $r) {
+            /*
+             * ---------------------------------------------------------
+             * C = TYPE
+             * ---------------------------------------------------------
+             *
+             * VERY IMPORTANT:
+             *
+             * This must be a NUMBER.
+             *
+             * The template has formulas such as:
+             *
+             *     $C6=1
+             *
+             * Therefore we must NOT save this as text "1".
+             */
+            $sheet->setCellValue(
+                "C{$currentRow}",
+                (int) $r['type']
+            );
 
-            // Top Summary Row 3: Blank separator row
-            echo '   <Row></Row>' . "\r\n";
+            /*
+             * ---------------------------------------------------------
+             * D = TO ACCOUNT
+             * ---------------------------------------------------------
+             *
+             * Keep bank account numbers as TEXT.
+             *
+             * This protects leading zeroes and prevents Excel
+             * from converting long account numbers to scientific
+             * notation.
+             */
+            $sheet->setCellValueExplicit(
+                "D{$currentRow}",
+                $cleanText($r['to_account']),
+                DataType::TYPE_STRING
+            );
 
-            // Table Column Headers (Row 4)
-            echo '   <Row ss:StyleID="Header">' . "\r\n";
-            foreach (self::HEADERS as $header) {
-                echo '    <Cell><Data ss:Type="String">' . $escape($header) . '</Data></Cell>' . "\r\n";
-            }
-            echo '   </Row>' . "\r\n";
+            /*
+             * ---------------------------------------------------------
+             * E = AMOUNT
+             * ---------------------------------------------------------
+             *
+             * Amount is a real Excel number.
+             */
+            $sheet->setCellValue(
+                "E{$currentRow}",
+                (float) $r['amount']
+            );
 
-            // Data rows
-            foreach ($rows as $r) {
-                echo '   <Row>' . "\r\n";
-                // Type (numeric: 1 = commercial, 2 = other bank)
-                echo '    <Cell><Data ss:Type="Number">' . ((int) $r['type']) . '</Data></Cell>' . "\r\n";
-                // To account (treated strictly as string to preserve leading zeroes)
-                echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($r['to_account']) . '</Data></Cell>' . "\r\n";
-                // Amount
-                echo '    <Cell ss:StyleID="Currency"><Data ss:Type="Number">' . $escape($r['amount']) . '</Data></Cell>' . "\r\n";
-                // Sender Description
-                echo '    <Cell><Data ss:Type="String">' . $escape($senderDescription) . '</Data></Cell>' . "\r\n";
-                // Beneficiary Description
-                echo '    <Cell><Data ss:Type="String">' . $escape($r['beneficiary_description']) . '</Data></Cell>' . "\r\n";
-                // Beneficiary Name
-                echo '    <Cell><Data ss:Type="String">' . $escape($r['beneficiary_name']) . '</Data></Cell>' . "\r\n";
-                // Beneficiary ID
-                echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($r['beneficiary_id']) . '</Data></Cell>' . "\r\n";
-                // SWIFT Code
-                echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($r['swift_code']) . '</Data></Cell>' . "\r\n";
-                // Purpose Code
-                echo '    <Cell ss:StyleID="Text"><Data ss:Type="String">' . $escape($purpose['code']) . '</Data></Cell>' . "\r\n";
-                echo '   </Row>' . "\r\n";
-            }
+            /*
+             * ---------------------------------------------------------
+             * F = SENDER DESCRIPTION
+             * ---------------------------------------------------------
+             */
+            $sheet->setCellValue(
+                "F{$currentRow}",
+                $cleanText($senderDescription)
+            );
 
-            echo '  </Table>' . "\r\n";
-            echo ' </Worksheet>' . "\r\n";
-            echo '</Workbook>' . "\r\n";
-        };
+            /*
+             * ---------------------------------------------------------
+             * G = BENEFICIARY DESCRIPTION
+             * ---------------------------------------------------------
+             */
+            $sheet->setCellValue(
+                "G{$currentRow}",
+                $cleanText($r['beneficiary_description'])
+            );
 
-        return new StreamedResponse($callback, 200, [
-            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-            'Cache-Control' => 'no-cache, no-store, must-revalidate',
-            'Pragma' => 'no-cache',
-        ]);
+            /*
+             * ---------------------------------------------------------
+             * H = BENEFICIARY NAME
+             * ---------------------------------------------------------
+             */
+            $sheet->setCellValue(
+                "H{$currentRow}",
+                $cleanText($r['beneficiary_name'])
+            );
+
+            /*
+             * ---------------------------------------------------------
+             * I = BENEFICIARY ID
+             * ---------------------------------------------------------
+             *
+             * Keep as text.
+             */
+            $sheet->setCellValueExplicit(
+                "I{$currentRow}",
+                $cleanText($r['beneficiary_id']),
+                DataType::TYPE_STRING
+            );
+
+            /*
+             * ---------------------------------------------------------
+             * J = SWIFT CODE
+             * ---------------------------------------------------------
+             *
+             * Keep as text.
+             */
+            $sheet->setCellValueExplicit(
+                "J{$currentRow}",
+                $cleanText($r['swift_code']),
+                DataType::TYPE_STRING
+            );
+
+            /*
+             * ---------------------------------------------------------
+             * K = PURPOSE CODE
+             * ---------------------------------------------------------
+             *
+             * Keep as text.
+             *
+             * Example:
+             *
+             * 784001
+             *
+             * This is a code, not a mathematical number.
+             */
+            $sheet->setCellValueExplicit(
+                "K{$currentRow}",
+                $cleanText($purpose['code']),
+                DataType::TYPE_STRING
+            );
+
+            $currentRow++;
+        }
+
+        /*
+         * Update the template's summary formulas/values.
+         *
+         * The original template already calculates:
+         *
+         * B4  = SUM(B6:B5005)
+         * N4  = SUM(N6:N5005)
+         * K2  = SUM(E6:E5005)
+         *
+         * Therefore we normally do NOT need to manually set these.
+         *
+         * Excel will recalculate them when the user opens the file.
+         */
+
+        /*
+         * Force Excel to recalculate formulas when opening the file.
+         *
+         * In PhpSpreadsheet v2+, getCalculationProperties() and
+         * Calculation\Properties were removed. Recalculation on open
+         * is ensured by setPreCalculateFormulas(false) on the writer
+         * below, which instructs Excel to recalculate when it opens.
+         */
+
+        /*
+         * Create a temporary XLSX file.
+         *
+         * We use .xlsx because macros have been stripped above.
+         */
+        $temporaryPath = tempnam(
+            sys_get_temp_dir(),
+            'cus_'
+        ) . '.xlsx';
+
+        /*
+         * Save as a clean XLSX file.
+         *
+         * Macros have been stripped above, so this produces a
+         * standards-compliant .xlsx with no Excel warnings.
+         */
+        $writer = IOFactory::createWriter(
+            $spreadsheet,
+            'Xlsx'
+        );
+
+        /*
+         * Do not ask PhpSpreadsheet to pre-calculate formulas.
+         * Excel will recalculate them when the workbook opens.
+         */
+        $writer->setPreCalculateFormulas(false);
+
+        /*
+         * Instruct Excel to force a full recalculation on open.
+         * This ensures SUM/VLOOKUP formula cells refresh immediately.
+         */
+        if (method_exists($writer, 'setForceFullCalc')) {
+            $writer->setForceFullCalc(true);
+        }
+
+        $writer->save($temporaryPath);
+
+        /*
+         * Remove the orphaned macro-button drawings.
+         *
+         * The bank's .xlsm template embeds macro buttons (Save / Create /
+         * Reset / Exit / Clear) as legacy VML drawings. We strip the VBA
+         * project above, so those buttons point at nothing — and Excel
+         * responds by removing the whole VML part on EVERY open (the
+         * "repaired" recovery log naming vmlDrawing1.vml/vmlDrawing6.vml).
+         *
+         * The buttons are useless without their macros (the bank upload
+         * only needs the C:K data), so the parts and every reference to
+         * them are deleted. Anything else — e.g. instruction images — is
+         * left untouched.
+         */
+        $this->stripOrphanedMacroDrawings($temporaryPath);
+
+        /*
+         * Return the completed XLSX file.
+         */
+        return response()
+            ->download(
+                $temporaryPath,
+                $filename,
+                [
+                    'Content-Type' =>
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'Cache-Control' =>
+                        'no-cache, no-store, must-revalidate',
+                    'Pragma' => 'no-cache',
+                ]
+            )
+            ->deleteFileAfterSend(true);
     }
 
     private int $skippedCount = 0;
+
+    /**
+     * Delete legacy VML drawing parts left orphaned by macro stripping,
+     * together with every reference to them.
+     *
+     * Only the exact parts Excel flags are removed; the method silently
+     * skips anything it cannot find so it can never break a valid file.
+     */
+    private function stripOrphanedMacroDrawings(string $xlsxPath): void
+    {
+        $targets = ['vmlDrawing1.vml', 'vmlDrawing6.vml'];
+        $relsNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+        $src = new \ZipArchive();
+        if ($src->open($xlsxPath) !== true) {
+            return;
+        }
+
+        // Read-only pass: decide every edit up front. The archive is only
+        // ever modified through a fresh copy below, so in-place update
+        // quirks cannot silently drop changes.
+        $replacements = [];
+        $deletions = [];
+
+        $entries = [];
+        for ($i = 0; $i < $src->numFiles; $i++) {
+            $entries[] = $src->getNameIndex($i);
+        }
+
+        foreach ($targets as $vml) {
+            $partPath = 'xl/drawings/' . $vml;
+
+            foreach ($entries as $relsName) {
+                if (!preg_match('#^xl/worksheets/_rels/(sheet\d+)\.xml\.rels$#', $relsName, $m)) {
+                    continue;
+                }
+
+                $relsXml = $src->getFromName($relsName);
+                $rels = new \DOMDocument();
+                if ($relsXml === false || $rels->loadXML($relsXml) === false) {
+                    continue;
+                }
+
+                // Collect first: the writer can emit the same target twice,
+                // and this NodeList is live (removing while iterating skips
+                // nodes). Every match must go, or Excel keeps repairing.
+                $refIds = [];
+                $stale = [];
+                foreach ($rels->getElementsByTagName('Relationship') as $rel) {
+                    if (str_ends_with($rel->getAttribute('Target'), 'drawings/' . $vml)) {
+                        $refIds[] = $rel->getAttribute('Id');
+                        $stale[] = $rel;
+                    }
+                }
+                foreach ($stale as $rel) {
+                    $rel->parentNode->removeChild($rel);
+                }
+                if ($stale !== []) {
+                    $replacements[$relsName] = $rels->saveXML();
+                }
+
+                if ($refIds === []) {
+                    continue;
+                }
+
+                $sheetName = 'xl/worksheets/' . $m[1] . '.xml';
+                $sheetXml = $src->getFromName($sheetName);
+                $sheet = new \DOMDocument();
+                if ($sheetXml !== false && $sheet->loadXML($sheetXml)) {
+                    $removed = false;
+                    foreach ($sheet->getElementsByTagName('legacyDrawing') as $node) {
+                        if (in_array($node->getAttributeNS($relsNs, 'id'), $refIds, true)) {
+                            $node->parentNode->removeChild($node);
+                            $removed = true;
+                        }
+                    }
+                    if ($removed) {
+                        $replacements[$sheetName] = $sheet->saveXML();
+                    }
+                }
+            }
+
+            $deletions[] = $partPath;
+            $deletions[] = 'xl/drawings/_rels/' . $vml . '.rels';
+
+            // Drop an Override content-type entry for the part, if any.
+            // Shared Default entries (e.g. Extension="vml") are left alone.
+            $ctXml = $src->getFromName('[Content_Types].xml');
+            $ct = new \DOMDocument();
+            if ($ctXml !== false && $ct->loadXML($ctXml)) {
+                $changed = false;
+                foreach ($ct->getElementsByTagName('Override') as $override) {
+                    if ($override->getAttribute('PartName') === '/' . $partPath) {
+                        $override->parentNode->removeChild($override);
+                        $changed = true;
+                    }
+                }
+                if ($changed) {
+                    $replacements['[Content_Types].xml'] = $ct->saveXML();
+                }
+            }
+        }
+
+        // Write pass: stream every entry into a brand-new archive.
+        $tmpPath = tempnam(sys_get_temp_dir(), 'cus_clean_');
+        if ($tmpPath === false) {
+            $src->close();
+            return;
+        }
+
+        $dst = new \ZipArchive();
+        if ($dst->open($tmpPath, \ZipArchive::OVERWRITE) !== true) {
+            $src->close();
+            return;
+        }
+
+        foreach ($entries as $name) {
+            if (in_array($name, $deletions, true)) {
+                continue;
+            }
+            $content = array_key_exists($name, $replacements)
+                ? $replacements[$name]
+                : $src->getFromName($name);
+            if ($content !== false) {
+                $dst->addFromString($name, $content);
+            }
+        }
+
+        $dst->close();
+        $src->close();
+
+        // Atomically swap the cleaned file into place.
+        copy($tmpPath, $xlsxPath);
+        @unlink($tmpPath);
+    }
 
     /** @var array<int, array<string, string>> */
     private array $skippedDetails = [];
@@ -311,65 +803,161 @@ class CusReportController extends Controller
     /**
      * Build the upload rows for one month + cycle + bank filter.
      *
-     * Only PROCESSED payroll records are included, and the amount is the
-     * net (take-home) figure for that cycle.
+     * Only PROCESSED payroll records are included.
      */
-    private function buildRows(string $month, string $payDay, string $bankFilter): array
-    {
+    private function buildRows(
+        string $month,
+        string $payDay,
+        string $bankFilter
+    ): array {
         $this->skippedCount = 0;
         $this->skippedDetails = [];
 
         $query = PayrollRecord::query()
-            ->with(['employee.bank', 'user.employee.bank'])
+            ->with([
+                'employee.bank',
+                'user.employee.bank',
+            ])
             ->where('month', $month)
             ->where('pay_day', $payDay)
             ->where('status', 'processed');
 
-        $records = $query->get()->filter(function ($record) {
-            return $this->employeeFor($record) !== null;
-        })->sortBy(function ($record) {
-            return $this->employeeSortKey($this->employeeFor($record));
-        })->values();
+        $records = $query
+            ->get()
+            ->filter(function ($record) {
+                return $this->employeeFor($record) !== null;
+            })
+            ->sortBy(function ($record) {
+                return $this->employeeSortKey(
+                    $this->employeeFor($record)
+                );
+            })
+            ->values();
 
         $rows = [];
+
         foreach ($records as $record) {
             /** @var Employee $employee */
             $employee = $this->employeeFor($record);
-            $bank = $employee->bank ?? ($employee->bank_name ? Bank::where('name', $employee->bank_name)->first() : null);
 
-            // The bank filter indicates the upload sheet format/target bank system,
-            // not a filter to exclude employees who hold accounts at other banks.
+            $bank = $employee->bank
+                ?? (
+                    $employee->bank_name
+                        ? Bank::where(
+                            'name',
+                            $employee->bank_name
+                        )->first()
+                        : null
+                );
 
-            $accountNumber = BankAccountFormatService::sanitizeAccountNumber($employee->account_number);
-            $name = BankAccountFormatService::sanitizeAlphanumeric($employee->full_name, 25);
+            /*
+             * The bank filter indicates the upload sheet format/target
+             * bank system, not a filter to exclude employees.
+             */
+            $accountNumber =
+                BankAccountFormatService::sanitizeAccountNumber(
+                    $employee->account_number
+                );
 
-            // Re-use the per-bank format rules so a bad account number is
-            // reported as skipped instead of being rejected by the bank.
-            [$accountIsValid, $accountError] = BankAccountFormatService::validateAccountNumber($accountNumber, $bank);
+            $name =
+                BankAccountFormatService::sanitizeAlphanumeric(
+                    $employee->full_name,
+                    25
+                );
 
-            if ($accountNumber === '' || $name === '' || !$accountIsValid) {
+            /*
+             * Validate the account number using the existing
+             * bank-specific rules.
+             */
+            [
+                $accountIsValid,
+                $accountError
+            ] = BankAccountFormatService::validateAccountNumber(
+                $accountNumber,
+                $bank
+            );
+
+            if (
+                $accountNumber === ''
+                || $name === ''
+                || !$accountIsValid
+            ) {
                 $this->skippedCount++;
+
                 $this->skippedDetails[] = [
-                    'employee_code' => (string) ($employee->employee_code ?? ''),
-                    'reason' => $accountNumber === ''
-                        ? 'Missing bank account number'
-                        : ($name === '' ? 'Missing employee name' : $accountError),
+                    'employee_code' =>
+                        (string) (
+                            $employee->employee_code ?? ''
+                        ),
+
+                    'reason' =>
+                        $accountNumber === ''
+                            ? 'Missing bank account number'
+                            : (
+                                $name === ''
+                                    ? 'Missing employee name'
+                                    : $accountError
+                            ),
                 ];
+
                 continue;
             }
 
             $rows[] = [
                 'employee_id' => $employee->id,
-                'employee_code' => (string) ($employee->employee_code ?? ''),
-                'employee_name' => (string) ($employee->full_name ?? ''),
-                'bank_name' => $bank?->name ?? (string) ($employee->bank_name ?? ''),
-                'type' => $bank && $bank->is_commercial ? '1' : '2',
+
+                'employee_code' =>
+                    (string) (
+                        $employee->employee_code ?? ''
+                    ),
+
+                'employee_name' =>
+                    (string) (
+                        $employee->full_name ?? ''
+                    ),
+
+                'bank_name' =>
+                    $bank?->name
+                    ?? (
+                        (string) (
+                            $employee->bank_name ?? ''
+                        )
+                    ),
+
+                /*
+                 * TYPE must eventually be written as a NUMBER
+                 * in the Excel template.
+                 */
+                'type' =>
+                    $bank && $bank->is_commercial
+                        ? '1'
+                        : '2',
+
                 'to_account' => $accountNumber,
-                'amount' => BankAccountFormatService::formatAmount((float) $record->net),
-                'beneficiary_description' => BankAccountFormatService::sanitizeAlphanumeric($employee->employee_code, 30),
+
+                'amount' =>
+                    BankAccountFormatService::formatAmount(
+                        (float) $record->net
+                    ),
+
+                'beneficiary_description' =>
+                    BankAccountFormatService::sanitizeAlphanumeric(
+                        $employee->employee_code,
+                        30
+                    ),
+
                 'beneficiary_name' => $name,
-                'beneficiary_id' => BankAccountFormatService::sanitizeAlphanumeric($employee->id_number, 30),
-                'swift_code' => (string) ($bank?->swift_code ?? ''),
+
+                'beneficiary_id' =>
+                    BankAccountFormatService::sanitizeAlphanumeric(
+                        $employee->id_number,
+                        30
+                    ),
+
+                'swift_code' =>
+                    (string) (
+                        $bank?->swift_code ?? ''
+                    ),
             ];
         }
 
@@ -377,73 +965,168 @@ class CusReportController extends Controller
     }
 
     /**
-     * "Company Salaries [August 2026]" capped at 30 characters.
+     * Create sender description.
+     *
+     * Example:
+     *
+     * Company Salaries [August 2026]
      */
-    private function senderDescription(string $month): string
-    {
-        $period = Carbon::createFromFormat('Y-m', $month);
-        $label = sprintf('Company Salaries [%s]', $period->format('F Y'));
+    private function senderDescription(
+        string $month
+    ): string {
+        $period = Carbon::createFromFormat(
+            'Y-m',
+            $month
+        );
 
-        return BankAccountFormatService::sanitizeAlphanumeric($label, 30);
+        $label = sprintf(
+            'Company Salaries [%s]',
+            $period->format('F Y')
+        );
+
+        return BankAccountFormatService::sanitizeAlphanumeric(
+            $label,
+            30
+        );
     }
 
     /**
-     * @return array{code: string, description: string}
+     * Resolve purpose code.
+     *
+     * @return array{
+     *     code:string,
+     *     description:string
+     * }
      */
-    private function resolvePurposeCode(?string $code): array
-    {
+    private function resolvePurposeCode(
+        ?string $code
+    ): array {
         $purpose = $code
-            ? PurposeCode::where('code', $code)->first()
-            : PurposeCode::where('is_default', true)->first();
+            ? PurposeCode::where(
+                'code',
+                $code
+            )->first()
+            : PurposeCode::where(
+                'is_default',
+                true
+            )->first();
 
-        if ($purpose === null && $code !== null) {
-            $purpose = PurposeCode::where('code', $code)->first();
+        if (
+            $purpose === null
+            && $code !== null
+        ) {
+            $purpose = PurposeCode::where(
+                'code',
+                $code
+            )->first();
         }
+
         if ($purpose === null) {
-            $purpose = PurposeCode::where('code', self::DEFAULT_PURPOSE_CODE)->first();
+            $purpose = PurposeCode::where(
+                'code',
+                self::DEFAULT_PURPOSE_CODE
+            )->first();
         }
 
         return [
-            'code' => $purpose?->code ?? self::DEFAULT_PURPOSE_CODE,
-            'description' => $purpose?->description ?? 'Consultancy Fees, Legal Charges and Salaries',
+            'code' =>
+                $purpose?->code
+                ?? self::DEFAULT_PURPOSE_CODE,
+
+            'description' =>
+                $purpose?->description
+                ?? 'Consultancy Fees, Legal Charges and Salaries',
         ];
     }
 
     /**
-     * Resolve the employee for a payroll record.
+     * Resolve employee for a payroll record.
      *
-     * The record's own employee_id is authoritative; the user -> employee
-     * relation is only a fallback for legacy rows created before employee_id
-     * was populated on payroll_records.
+     * The record's employee_id is authoritative.
+     * The user -> employee relation is a fallback for legacy records.
      */
-    private function employeeFor(PayrollRecord $record): ?Employee
-    {
-        return $record->employee ?? $record->user?->employee;
+    private function employeeFor(
+        PayrollRecord $record
+    ): ?Employee {
+        return $record->employee
+            ?? $record->user?->employee;
     }
 
-    private function employeeSortKey(Employee $employee): array
-    {
-        $code = trim((string) ($employee->employee_code ?? ''));
+    /**
+     * Sort employees by employee code.
+     */
+    private function employeeSortKey(
+        Employee $employee
+    ): array {
+        $code = trim(
+            (string) (
+                $employee->employee_code ?? ''
+            )
+        );
 
-        // 1. Purely numeric employee codes come first (0), alphanumeric come second (1)
-        $isPurelyNumeric = preg_match('/^[0-9]+$/', $code) === 1 ? 0 : 1;
+        /*
+         * Numeric employee codes first.
+         */
+        $isPurelyNumeric =
+            preg_match(
+                '/^[0-9]+$/',
+                $code
+            ) === 1
+                ? 0
+                : 1;
 
-        // 2. Extracted number as unsigned integer
-        $number = preg_match('/[0-9]+/', $code, $m) ? (int) $m[0] : PHP_INT_MAX;
+        /*
+         * Extract the first number.
+         */
+        $number =
+            preg_match(
+                '/[0-9]+/',
+                $code,
+                $m
+            )
+                ? (int) $m[0]
+                : PHP_INT_MAX;
 
-        // 3. Original string as tie-breaker
-        return [$isPurelyNumeric, $number, $code];
+        return [
+            $isPurelyNumeric,
+            $number,
+            $code,
+        ];
     }
 
-    private function normalizeMonth(string $raw): ?string
-    {
+    /**
+     * Normalize month input.
+     *
+     * Supports:
+     * YYYY-MM
+     * YYYYMM
+     * Other Carbon-recognized date formats.
+     */
+    private function normalizeMonth(
+        string $raw
+    ): ?string {
         $raw = trim($raw);
-        if (preg_match('/^\d{4}-\d{2}$/', $raw)) {
+
+        if (
+            preg_match(
+                '/^\d{4}-\d{2}$/',
+                $raw
+            )
+        ) {
             return $raw;
         }
-        if (preg_match('/^\d{6}$/', $raw)) {
-            return substr($raw, 0, 4) . '-' . substr($raw, 4, 2);
+
+        if (
+            preg_match(
+                '/^\d{6}$/',
+                $raw
+            )
+        ) {
+            return substr($raw, 0, 4)
+                . '-'
+                . substr($raw, 4, 2);
         }
+
         try {
             return Carbon::parse($raw)->format('Y-m');
         } catch (\Exception $e) {

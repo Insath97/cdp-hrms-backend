@@ -10,6 +10,7 @@ use App\Services\LoanDeductionService;
 use App\Services\PayrollSettingsService;
 use App\Services\SriLankanTaxService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class PayrollCalculationService
 {
@@ -192,9 +193,39 @@ class PayrollCalculationService
 
         $allowanceRecord = null;
         if ($isPermanent) {
+            Log::info('[Payroll Calculation] Computing APIT for allowance record', [
+                'period'                 => $period,
+                'employee_id'            => $employee->id,
+                'employee_code'          => $employee->employee_code,
+                'employee_name'          => $employee->full_name,
+                'employee_type'          => $employee->employee_type,
+                'is_sales'               => $isSales,
+                'total_package'          => $totalPackage,
+                'achievement_percentage' => $achievement,
+                'payment_percentage'     => $paymentPct,
+                'apiit_base'             => $apiitBase,
+            ]);
+
             // fuel + vehicle allowance - APIIT
-            $apiitTax = SriLankanTaxService::apiit($apiitBase);
+            $apiitTax = SriLankanTaxService::apiit($apiitBase, [
+                'process'       => 'payroll_generation',
+                'period'        => $period,
+                'employee_id'   => $employee->id,
+                'employee_code' => $employee->employee_code,
+                'employee_name' => $employee->full_name,
+                'pay_day'       => self::PAY_ALLOWANCE,
+            ]);
             $howMuchPaid = round($scaledFuel + $scaledVehicle, 2);
+
+            Log::info('[Payroll Calculation] APIT computed for allowance record', [
+                'period'         => $period,
+                'employee_code'  => $employee->employee_code,
+                'apiit_base'     => $apiitBase,
+                'apiit_tax'      => $apiitTax,
+                'scaled_fuel'    => $scaledFuel,
+                'scaled_vehicle' => $scaledVehicle,
+                'how_much_paid'  => $howMuchPaid,
+            ]);
 
             if ($howMuchPaid > 0 || $apiitTax > 0) {
                 $allowanceRecord = $this->upsertRecord(array_merge($common, [
@@ -280,6 +311,17 @@ class PayrollCalculationService
                 + (float) $r->stamp_fee,
                 2
             );
+
+            if ((float) $r->apiit_tax > 0) {
+                Log::info('[Payroll Calculation] Applying APIT deduction to record', [
+                    'payroll_record_id' => $r->id,
+                    'pay_day'           => $r->pay_day,
+                    'period'            => $period,
+                    'employee_code'     => $employee->employee_code,
+                    'apiit_tax'         => (float) $r->apiit_tax,
+                    'total_statutory'   => $statutory,
+                ]);
+            }
 
             $appliedByType = [];
             foreach ($pools as $field => $amount) {

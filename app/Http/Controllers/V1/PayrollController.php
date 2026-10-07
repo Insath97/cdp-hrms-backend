@@ -591,11 +591,17 @@ class PayrollController extends Controller implements HasMiddleware
             $incomeTax = 0.0;
             if ($isPermanent) {
                 $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
-                $incomeTax = SriLankanTaxService::paye($howMuchPaid);
+                $incomeTax = SriLankanTaxService::paye($howMuchPaid, [
+                    'process'       => 'metrics_preview',
+                    'employee_code' => $employee->employee_code,
+                    'period'        => $period,
+                ]);
                 \Log::info('Deductions', [
-                    'epfEmployee' => $epfEmployee,
-                    'howMuchPaid' => $howMuchPaid,
-                    'incomeTax' => $incomeTax,
+                    'employee_code' => $employee->employee_code,
+                    'period'        => $period,
+                    'epfEmployee'   => $epfEmployee,
+                    'howMuchPaid'   => $howMuchPaid,
+                    'incomeTax'     => $incomeTax,
                 ]);
             }
 
@@ -653,9 +659,25 @@ class PayrollController extends Controller implements HasMiddleware
                 $totalDeductions = round($payrollRecords->sum('total_deductions'), 2);
                 $netPay        = round($payrollRecords->sum('net'), 2);
             } else {
-                // No stored records: keep the freshly calculated $stampFee,
-                // $totalDeductions and $netPay computed above.
-                $apiitTax = 0.0;
+                // No stored records: compute APIT preview and keep the freshly
+                // calculated $stampFee, $totalDeductions and $netPay computed above.
+                $apiitBase = $isSalesStaff ? round($totalPackage * $paymentPercentage / 100, 2) : (float) $totalPackage;
+                if ($isPermanent) {
+                    $apiitTax = SriLankanTaxService::apiit($apiitBase, [
+                        'process'       => 'metrics_preview',
+                        'employee_code' => $employee->employee_code,
+                        'period'        => $period,
+                        'is_sales'      => $isSalesStaff,
+                    ]);
+                    \Log::info('[Payroll Metrics Preview] APIT preview calculated', [
+                        'employee_code' => $employee->employee_code,
+                        'period'        => $period,
+                        'apiit_base'    => $apiitBase,
+                        'apiit_tax'     => $apiitTax,
+                    ]);
+                } else {
+                    $apiitTax = 0.0;
+                }
                 $payrollRecords = collect();
             }
 
