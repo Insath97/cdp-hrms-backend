@@ -27,10 +27,10 @@ class PayrollCalculationService
         if ($achievement < 50) {
             return 0;
         }
-        if ($achievement <= 65) {
+        if ($achievement < 65) {
             return 50;
         }
-        if ($achievement <= 90) {
+        if ($achievement < 90) {
             return 75;
         }
         return 100;
@@ -130,6 +130,7 @@ class PayrollCalculationService
                     'epf_employee'          => $epfEmployee,
                     'epf_employer'          => $epfEmployer,
                     'etf_employer'          => $etfEmployer,
+                    'apiit_tax'             => 0.0,
                     'stamp_fee'             => $stamp,
                     'payment_criteria'      => 'Basic Salary',
                 ]));
@@ -177,6 +178,7 @@ class PayrollCalculationService
                     'total_commission'      => round($commission + $overrideCommission, 2),
                     'how_much_paid'         => $howMuchPaid,
                     'wht_tax'               => $whtTax,
+                    'apiit_tax'             => 0.0,
                     'stamp_fee'             => $stampFeeAmount,
                     'payment_criteria'      => 'Commission Payment',
                 ]));
@@ -185,15 +187,25 @@ class PayrollCalculationService
 
         // ── 20th: Allowance (everyone) ─────────────────────────────────────
         // Non-sales staff are not measured on achievement: fuel and vehicle
-        // are paid at the exact package amounts, and APIIT is Charged on the
-        // full package — none of it is scaled by metrics.
+        // are paid at the exact package amounts — none of it is scaled by metrics.
         $scaledFuel = $isSales ? $scaled($fuel) : round($fuel, 2);
         $scaledVehicle = $isSales ? $scaled($vehicleAllowance) : round($vehicleAllowance, 2);
-        $apiitBase = $isSales ? $scaled($totalPackage) : (float) $totalPackage;
 
         $allowanceRecord = null;
         if ($isPermanent) {
-            Log::info('[Payroll Calculation] Computing APIT for allowance record', [
+            $howMuchPaid = round($scaledFuel + $scaledVehicle, 2);
+
+            // APIT is charged on the whole amount actually paid this month
+            // (5th + 15th + 20th), never on the package — but it is deducted
+            // entirely from the 20th payment.
+            $apiitBase = round(
+                ($basicRecord ? (float) $basicRecord->how_much_paid : 0.0)
+                + ($commissionRecord ? (float) $commissionRecord->how_much_paid : 0.0)
+                + $howMuchPaid,
+                2
+            );
+
+            Log::info('[Payroll Calculation] Computing APIT on whole month paid amount', [
                 'period'                 => $period,
                 'employee_id'            => $employee->id,
                 'employee_code'          => $employee->employee_code,
@@ -204,9 +216,11 @@ class PayrollCalculationService
                 'achievement_percentage' => $achievement,
                 'payment_percentage'     => $paymentPct,
                 'apiit_base'             => $apiitBase,
+                'paid_5th'               => $basicRecord ? (float) $basicRecord->how_much_paid : 0.0,
+                'paid_15th'              => $commissionRecord ? (float) $commissionRecord->how_much_paid : 0.0,
+                'paid_20th'              => $howMuchPaid,
             ]);
 
-            // fuel + vehicle allowance - APIIT
             $apiitTax = SriLankanTaxService::apiit($apiitBase, [
                 'process'       => 'payroll_generation',
                 'period'        => $period,
@@ -215,9 +229,8 @@ class PayrollCalculationService
                 'employee_name' => $employee->full_name,
                 'pay_day'       => self::PAY_ALLOWANCE,
             ]);
-            $howMuchPaid = round($scaledFuel + $scaledVehicle, 2);
 
-            Log::info('[Payroll Calculation] APIT computed for allowance record', [
+            Log::info('[Payroll Calculation] APIT computed for the 20th payment', [
                 'period'         => $period,
                 'employee_code'  => $employee->employee_code,
                 'apiit_base'     => $apiitBase,
@@ -240,18 +253,19 @@ class PayrollCalculationService
             }
         } else {
             // basic + fuel + vehicle allowance (no EPF, no APIIT)
-            $howMuchPaid = round($basicSalary + $scaledFuel + $scaledVehicle, 2);
+            // For non-permanent sales staff, all components (basic, fuel, vehicle) depend on achievement.
+            $scaledBasic = $isSales ? $scaled($basicSalary) : round($basicSalary, 2);
+            $howMuchPaid = round($scaledBasic + $scaledFuel + $scaledVehicle, 2);
 
-            if ($howMuchPaid > 0) {
-                $allowanceRecord = $this->upsertRecord(array_merge($common, [
-                    'pay_day'               => self::PAY_ALLOWANCE,
-                    'basic'                 => $basicSalary,
-                    'travel_reimbursement'  => $scaledFuel,
-                    'vehicle_rental'        => $scaledVehicle,
-                    'how_much_paid'         => $howMuchPaid,
-                    'payment_criteria'      => 'Allowance Payment',
-                ]));
-            }
+            $allowanceRecord = $this->upsertRecord(array_merge($common, [
+                'pay_day'               => self::PAY_ALLOWANCE,
+                'basic'                 => $scaledBasic,
+                'travel_reimbursement'  => $scaledFuel,
+                'vehicle_rental'        => $scaledVehicle,
+                'how_much_paid'         => $howMuchPaid,
+                'apiit_tax'             => 0.0,
+                'payment_criteria'      => 'Allowance Payment',
+            ]));
         }
 
         // ── Apply manual deduction cascade: 5th -> 15th -> 20th ────────────

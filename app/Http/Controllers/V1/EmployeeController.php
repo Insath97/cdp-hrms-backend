@@ -402,7 +402,8 @@ class EmployeeController extends Controller implements HasMiddleware
             $userType = $data['user_type'] ?? null;
             $role = $data['role'] ?? null;
             $username = $data['username'] ?? null;
-            unset($data['geofence_ids'], $data['user_type'], $data['role'], $data['username']);
+            $password = $data['password'] ?? null;
+            unset($data['geofence_ids'], $data['user_type'], $data['role'], $data['username'], $data['password']);
 
             // Extract salary fields and persist to employee_salary_details
             $salaryFields = [
@@ -453,12 +454,20 @@ class EmployeeController extends Controller implements HasMiddleware
                     $user->username = $username;
                 }
 
+                // Only fall back to the employee code when the account has no
+                // username yet — never clobber an existing custom username.
+                if (array_key_exists('employee_code', $data) && ($username === null || $username === '') && empty($user->username)) {
+                    $user->username = $data['employee_code'];
+                }
+
+                // Password is hashed automatically by the User model's 'hashed' cast.
+                if ($password !== null && $password !== '') {
+                    $user->password = $password;
+                }
+
                 // Auto-sync profile fields from the employee record
                 if (array_key_exists('full_name', $data)) {
                     $user->name = $data['full_name'];
-                }
-                if (array_key_exists('employee_code', $data) && ($username === null || $username === '')) {
-                    $user->username = $data['employee_code'];
                 }
                 if (array_key_exists('email', $data)) {
                     if ($data['email'] !== null) {

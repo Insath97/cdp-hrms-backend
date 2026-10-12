@@ -825,7 +825,8 @@ class CusReportController extends Controller
         $records = $query
             ->get()
             ->filter(function ($record) {
-                return $this->employeeFor($record) !== null;
+                return $this->employeeFor($record) !== null
+                    && (float) $record->net > 0;
             })
             ->sortBy(function ($record) {
                 return $this->employeeSortKey(
@@ -857,6 +858,16 @@ class CusReportController extends Controller
             $accountNumber =
                 BankAccountFormatService::sanitizeAccountNumber(
                     $employee->account_number
+                );
+
+            /*
+             * BOC/HNB accounts stored without leading zeros are padded
+             * up to the required length instead of being skipped.
+             */
+            $accountNumber =
+                BankAccountFormatService::padAccountNumber(
+                    $accountNumber,
+                    $bank
                 );
 
             $name =

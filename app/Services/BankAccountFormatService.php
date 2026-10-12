@@ -54,6 +54,50 @@ class BankAccountFormatService
     }
 
     /**
+     * Banks whose account numbers are stored without leading zeros.
+     *
+     * BOC and HNB account numbers are commonly kept in HR records with
+     * the leading zeros dropped; the upload requires the full length.
+     */
+    private const ZERO_PAD_BANKS = [
+        'Bank of Ceylon',
+        'Hatton National Bank',
+    ];
+
+    /**
+     * Left-pad a short account number with zeros up to the bank's required
+     * length (BOC/HNB only).
+     *
+     * Only pads numbers that are already numeric and SHORTER than expected.
+     * Longer numbers are returned untouched so validation still rejects
+     * them instead of silently corrupting the account.
+     */
+    public static function padAccountNumber(
+        ?string $accountNumber,
+        ?Bank $bank
+    ): string {
+        $accountNumber = trim((string) $accountNumber);
+
+        if (
+            $accountNumber === ''
+            || !preg_match('/^\d+$/', $accountNumber)
+            || $bank === null
+            || $bank->account_number_length === null
+            || !in_array($bank->name, self::ZERO_PAD_BANKS, true)
+        ) {
+            return $accountNumber;
+        }
+
+        $expected = (int) $bank->account_number_length;
+
+        if (strlen($accountNumber) >= $expected) {
+            return $accountNumber;
+        }
+
+        return str_pad($accountNumber, $expected, '0', STR_PAD_LEFT);
+    }
+
+    /**
      * Strip characters the bank upload rejects: , - @ . ( ) and friends.
      * Used for beneficiary name / description / sender description fields.
      */

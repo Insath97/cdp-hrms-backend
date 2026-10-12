@@ -183,6 +183,48 @@ class CusReportTest extends TestCase
             ->assertJsonPath('data.rows.0.swift_code', 'BSAMLKLX001');
     }
 
+    public function test_boc_short_account_number_is_zero_padded_instead_of_skipped()
+    {
+        $boc = Bank::create([
+            'name' => 'Bank of Ceylon',
+            'swift_code' => 'BCEYLKLX',
+            'account_number_length' => 10,
+            'is_commercial' => false,
+            'is_active' => true,
+        ]);
+        $this->seedProcessedRecord($boc, 'basic', 'processed', 60000.00, 'E-BOC-1', '12345678');
+
+        $user = $this->makeAdmin('cus.bocpad');
+
+        $this->actingAsUser($user)
+            ->getJson('/api/v1/reports/cus/preview?month=2026-08&pay_day=basic&bank=other')
+            ->assertOk()
+            ->assertJsonPath('data.count', 1)
+            ->assertJsonPath('data.rows.0.to_account', '0012345678')
+            ->assertJsonPath('data.skipped', 0);
+    }
+
+    public function test_hnb_short_account_number_is_zero_padded_instead_of_skipped()
+    {
+        $hnb = Bank::create([
+            'name' => 'Hatton National Bank',
+            'swift_code' => 'HBLILKLX',
+            'account_number_length' => 12,
+            'is_commercial' => false,
+            'is_active' => true,
+        ]);
+        $this->seedProcessedRecord($hnb, 'basic', 'processed', 60000.00, 'E-HNB-1', '123456789');
+
+        $user = $this->makeAdmin('cus.hnbpad');
+
+        $this->actingAsUser($user)
+            ->getJson('/api/v1/reports/cus/preview?month=2026-08&pay_day=basic&bank=other')
+            ->assertOk()
+            ->assertJsonPath('data.count', 1)
+            ->assertJsonPath('data.rows.0.to_account', '000123456789')
+            ->assertJsonPath('data.skipped', 0);
+    }
+
     public function test_purpose_code_selects_description()
     {
         $bank = $this->commercialBank();

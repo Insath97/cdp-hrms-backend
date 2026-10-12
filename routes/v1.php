@@ -32,6 +32,7 @@ use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
 use App\Http\Controllers\V1\Admin\AbsentMarkingController;
 use App\Http\Controllers\V1\GeofenceController;
 use App\Http\Controllers\V1\UserAllowedLocationController;
+use App\Http\Controllers\V1\OpenLocationController;
 use App\Http\Controllers\V1\LoanController;
 use App\Http\Controllers\V1\BankLookupController;
 use App\Http\Controllers\V1\BankController;
@@ -231,6 +232,18 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::delete('/geofences/{geofence}', [GeofenceController::class, 'destroy']);
     Route::post('/geofences/{geofence}/assign-users', [GeofenceController::class, 'assignUsers']);
     Route::get('/geofences/user/{user}', [GeofenceController::class, 'getUserGeofences']);
+
+    // Open-location access routes (clock in/out from anywhere, HR approved)
+    Route::prefix('open-location')->group(function () {
+        Route::get('/status', [OpenLocationController::class, 'status']);
+        Route::post('/requests', [OpenLocationController::class, 'request']);
+        Route::get('/my-requests', [OpenLocationController::class, 'myRequests']);
+        Route::get('/requests', [OpenLocationController::class, 'index']);
+        Route::post('/requests/{id}/approve', [OpenLocationController::class, 'approve']);
+        Route::post('/requests/{id}/reject', [OpenLocationController::class, 'reject']);
+        Route::get('/members', [OpenLocationController::class, 'members']);
+        Route::delete('/members/{user}', [OpenLocationController::class, 'revoke']);
+    });
 
 
     // Employee routes

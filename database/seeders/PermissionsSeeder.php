@@ -145,6 +145,7 @@ class PermissionsSeeder extends Seeder
 
             /* Geofence Management */
             ['name' => 'Geofence Manage', 'group_name' => 'Geofence Management Permissions'],
+            ['name' => 'Open Location Manage', 'group_name' => 'Geofence Management Permissions'],
 
             /* Bank & Purpose Code Management (CUS salary upload) */
             ['name' => 'Bank Index', 'group_name' => 'Bank Management Permissions'],

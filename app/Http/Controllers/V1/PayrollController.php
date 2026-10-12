@@ -539,10 +539,10 @@ class PayrollController extends Controller implements HasMiddleware
             if ($achievement < 50) {
                 $paymentPercentage = 0;
                 $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
-            } elseif ($achievement >= 50 && $achievement <= 65) {
+            } elseif ($achievement >= 50 && $achievement < 65) {
                 $paymentPercentage = 50;
                 $paymentCriteria = '50% Total Package';
-            } elseif ($achievement > 65 && $achievement <= 90) {
+            } elseif ($achievement >= 65 && $achievement < 90) {
                 $paymentPercentage = 75;
                 $paymentCriteria = '75% Total Package';
             } else {
@@ -585,23 +585,28 @@ class PayrollController extends Controller implements HasMiddleware
                 }
             }
 
-            // Deductions: EPF (8% of basic) + PAYE tax (on howMuchPaid) apply only to permanent staff.
+            // Deductions: EPF (8% of basic) and APIT apply only to permanent staff.
+            // APIT is charged on the whole amount paid this month, never on the
+            // package — processed payroll stores it in apiit_tax only, so the
+            // preview does not add a separate PAYE charge on top of it.
             // CDP recover amount applies to everyone.
             $epfEmployee = 0.0;
             $incomeTax = 0.0;
+            $apiitTax = 0.0;
             if ($isPermanent) {
                 $epfEmployee = SriLankanTaxService::epfEmployee($basicSalary);
-                $incomeTax = SriLankanTaxService::paye($howMuchPaid, [
+                $apiitTax = SriLankanTaxService::apiit($howMuchPaid, [
                     'process'       => 'metrics_preview',
                     'employee_code' => $employee->employee_code,
                     'period'        => $period,
+                    'is_sales'      => $isSalesStaff,
                 ]);
                 \Log::info('Deductions', [
                     'employee_code' => $employee->employee_code,
                     'period'        => $period,
                     'epfEmployee'   => $epfEmployee,
                     'howMuchPaid'   => $howMuchPaid,
-                    'incomeTax'     => $incomeTax,
+                    'apiitTax'      => $apiitTax,
                 ]);
             }
 
@@ -626,7 +631,7 @@ class PayrollController extends Controller implements HasMiddleware
                 }
             }
 
-            $totalDeductions = round($epfEmployee + $incomeTax + $recoverAmount + $loanDeductionsTotal + $stampFee, 2);
+            $totalDeductions = round($epfEmployee + $incomeTax + $apiitTax + $recoverAmount + $loanDeductionsTotal + $stampFee, 2);
 
             // WHT (5% for non-permanent sales staff when howMuchPaid > 100,000)
             $whtTax = 0.0;
@@ -659,25 +664,14 @@ class PayrollController extends Controller implements HasMiddleware
                 $totalDeductions = round($payrollRecords->sum('total_deductions'), 2);
                 $netPay        = round($payrollRecords->sum('net'), 2);
             } else {
-                // No stored records: compute APIT preview and keep the freshly
-                // calculated $stampFee, $totalDeductions and $netPay computed above.
-                $apiitBase = $isSalesStaff ? round($totalPackage * $paymentPercentage / 100, 2) : (float) $totalPackage;
-                if ($isPermanent) {
-                    $apiitTax = SriLankanTaxService::apiit($apiitBase, [
-                        'process'       => 'metrics_preview',
-                        'employee_code' => $employee->employee_code,
-                        'period'        => $period,
-                        'is_sales'      => $isSalesStaff,
-                    ]);
-                    \Log::info('[Payroll Metrics Preview] APIT preview calculated', [
-                        'employee_code' => $employee->employee_code,
-                        'period'        => $period,
-                        'apiit_base'    => $apiitBase,
-                        'apiit_tax'     => $apiitTax,
-                    ]);
-                } else {
-                    $apiitTax = 0.0;
-                }
+                // No stored records: keep the freshly calculated $epfEmployee,
+                // $apiitTax, $stampFee, $totalDeductions and $netPay computed above.
+                \Log::info('[Payroll Metrics Preview] APIT preview calculated', [
+                    'employee_code' => $employee->employee_code,
+                    'period'        => $period,
+                    'apiit_base'    => $howMuchPaid,
+                    'apiit_tax'     => $apiitTax,
+                ]);
                 $payrollRecords = collect();
             }
 

@@ -12,9 +12,11 @@ use Carbon\Carbon;
 use App\Models\Attendance;
 use App\Models\User;
 use App\Models\Geofence;
+use App\Models\OpenLocationMember;
 use App\Models\Leave;
 use App\Models\Holiday;
 use App\Http\Controllers\V1\GeofenceController;
+use App\Services\AttendanceSessionExpiryService;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\ActivityLogTrait;
@@ -135,46 +137,56 @@ class AttendanceController extends Controller implements HasMiddleware
                 $latitude = $request->input('latitude');
                 $longitude = $request->input('longitude');
 
-                if ($latitude === null || $longitude === null) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'Your location could not be verified. Please enable location services to clock in.',
-                    ], 403);
-                }
-
                 $userForCheck = isset($user) ? $user : User::find($data['user_id']);
+                $isOpenLocation = $userForCheck?->hasOpenLocationAccess() ?? false;
 
-                $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
-
-                if (!$allowedLocations || $allowedLocations->isEmpty()) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'No allowed locations assigned. Please contact your administrator.',
-                    ], 403);
-                }
-
-                foreach ($allowedLocations as $loc) {
-                    $gf = $loc->geofence;
-                    if (!$gf || !$gf->is_active) continue;
-                    $dist = GeofenceController::haversineDistance(
-                        (float) $latitude,
-                        (float) $longitude,
-                        (float) $gf->latitude,
-                        (float) $gf->longitude
-                    );
-                    if ($dist <= (float) $gf->radius_meters) {
+                // Open-location members may clock in from anywhere (location optional).
+                if ($isOpenLocation) {
+                    if ($latitude !== null && $longitude !== null) {
                         $data['in_latitude'] = $latitude;
                         $data['in_longitude'] = $longitude;
-                        $data['in_geofence_name'] = $gf->name;
-                        break;
                     }
-                }
+                    $data['in_geofence_name'] = OpenLocationMember::LABEL;
+                } else {
+                    if ($latitude === null || $longitude === null) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'Your location could not be verified. Please enable location services to clock in.',
+                        ], 403);
+                    }
 
-                if (!isset($data['in_geofence_name'])) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'You are outside your allowed locations. Please move to an approved area.',
-                    ], 403);
+                    $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+                    if (!$allowedLocations || $allowedLocations->isEmpty()) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'No allowed locations assigned. Please contact your administrator.',
+                        ], 403);
+                    }
+
+                    foreach ($allowedLocations as $loc) {
+                        $gf = $loc->geofence;
+                        if (!$gf || !$gf->is_active) continue;
+                        $dist = GeofenceController::haversineDistance(
+                            (float) $latitude,
+                            (float) $longitude,
+                            (float) $gf->latitude,
+                            (float) $gf->longitude
+                        );
+                        if ($dist <= (float) $gf->radius_meters) {
+                            $data['in_latitude'] = $latitude;
+                            $data['in_longitude'] = $longitude;
+                            $data['in_geofence_name'] = $gf->name;
+                            break;
+                        }
+                    }
+
+                    if (!isset($data['in_geofence_name'])) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'You are outside your allowed locations. Please move to an approved area.',
+                        ], 403);
+                    }
                 }
             }
 
@@ -220,6 +232,14 @@ class AttendanceController extends Controller implements HasMiddleware
                 $data['status'] = 'present';
             } elseif (isset($data['clock_in'])) {
                 $data['status'] = 'present';
+            }
+
+            // Close any session left open on a previous day so this clock-in starts a fresh session
+            if (isset($data['clock_in'])) {
+                app(AttendanceSessionExpiryService::class)->expireSessionsBefore(
+                    (int) $data['user_id'],
+                    $data['date']
+                );
             }
 
             $attendance = Attendance::create($data);
@@ -585,44 +605,53 @@ class AttendanceController extends Controller implements HasMiddleware
             $latitude = $request->input('latitude');
             $longitude = $request->input('longitude');
 
-            if ($latitude === null || $longitude === null) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Your location could not be verified. Please enable location services to clock out.',
-                ], 403);
-            }
-
-            $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
-
-            if ($allowedLocations->isEmpty()) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'No allowed locations assigned. Please contact your administrator.',
-                ], 403);
-            }
-
-            foreach ($allowedLocations as $loc) {
-                $gf = $loc->geofence;
-                if (!$gf || !$gf->is_active) continue;
-                $dist = GeofenceController::haversineDistance(
-                    (float) $latitude,
-                    (float) $longitude,
-                    (float) $gf->latitude,
-                    (float) $gf->longitude
-                );
-                if ($dist <= (float) $gf->radius_meters) {
+            // Open-location members may clock out from anywhere (location optional).
+            if ($user->hasOpenLocationAccess()) {
+                if ($latitude !== null && $longitude !== null) {
                     $attendance->out_latitude = $latitude;
                     $attendance->out_longitude = $longitude;
-                    $attendance->out_geofence_name = $gf->name;
-                    break;
                 }
-            }
+                $attendance->out_geofence_name = OpenLocationMember::LABEL;
+            } else {
+                if ($latitude === null || $longitude === null) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Your location could not be verified. Please enable location services to clock out.',
+                    ], 403);
+                }
 
-            if (!$attendance->out_geofence_name) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
-                ], 403);
+                $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+                if ($allowedLocations->isEmpty()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'No allowed locations assigned. Please contact your administrator.',
+                    ], 403);
+                }
+
+                foreach ($allowedLocations as $loc) {
+                    $gf = $loc->geofence;
+                    if (!$gf || !$gf->is_active) continue;
+                    $dist = GeofenceController::haversineDistance(
+                        (float) $latitude,
+                        (float) $longitude,
+                        (float) $gf->latitude,
+                        (float) $gf->longitude
+                    );
+                    if ($dist <= (float) $gf->radius_meters) {
+                        $attendance->out_latitude = $latitude;
+                        $attendance->out_longitude = $longitude;
+                        $attendance->out_geofence_name = $gf->name;
+                        break;
+                    }
+                }
+
+                if (!$attendance->out_geofence_name) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
+                    ], 403);
+                }
             }
 
             // Capture out IP Address
@@ -631,8 +660,13 @@ class AttendanceController extends Controller implements HasMiddleware
             }
 
             if ($attendance->clock_in) {
-                // clock_in should already be a datetime
-                $start = $attendance->clock_in instanceof Carbon ? $attendance->clock_in : Carbon::parse($attendance->clock_in);
+                $clockInTime = $attendance->clock_in instanceof Carbon
+                    ? $attendance->clock_in->format('H:i:s')
+                    : substr((string) $attendance->clock_in, 0, 8);
+
+                // Build both ends on the record's own date: the time-only columns otherwise
+                // resolve to today, which breaks clock-outs for previous days.
+                $start = Carbon::parse($date.' '.$clockInTime);
                 $end = $clockOutDateTime;
 
                 if ($end < $start) {

@@ -60,7 +60,9 @@ class AuthController extends Controller
             // Geofence check on login
             $latitude = $request->input('latitude');
             $longitude = $request->input('longitude');
-            if ($latitude !== null && $longitude !== null) {
+            $bypassRequested = $request->input('bypass_geofence') === true || $request->input('bypass_geofence') === 'true';
+            $isOpenLocation = $user->hasOpenLocationAccess();
+            if ($latitude !== null && $longitude !== null && !$bypassRequested && !$isOpenLocation) {
                 $matchedGeofence = GeofenceController::checkCoordinates($latitude, $longitude, $user);
                 if (!$matchedGeofence) {
                     $assignedCount = $user->geofences()->where('is_active', true)->count();

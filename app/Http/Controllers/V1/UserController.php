@@ -101,7 +101,7 @@ class UserController extends Controller implements HasMiddleware
         try {
             $users = User::where('is_active', true)
                 ->select('id', 'name', 'email', 'username', 'employee_id')
-                ->with('employee:id,full_name')
+                ->with('employee:id,full_name,employee_code')
                 ->orderBy('name', 'asc')
                 ->get();
 

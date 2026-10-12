@@ -185,10 +185,10 @@ class PayrollAdminController extends Controller implements HasMiddleware
                         if ($achievement < 50) {
                             $paymentPercentage = 0;
                             $paymentCriteria = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
-                        } elseif ($achievement >= 50 && $achievement <= 65) {
+                        } elseif ($achievement >= 50 && $achievement < 65) {
                             $paymentPercentage = 50;
                             $paymentCriteria = '50% Total Package';
-                        } elseif ($achievement > 65 && $achievement <= 90) {
+                        } elseif ($achievement >= 65 && $achievement < 90) {
                             $paymentPercentage = 75;
                             $paymentCriteria = '75% Total Package';
                         } else {
@@ -374,10 +374,10 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 if ($achievement < 50) {
                     $metrics['payment_percentage'] = 0;
                     $metrics['payment_criteria'] = $isPermanent ? 'Basic Salary (Guaranteed)' : 'No';
-                } elseif ($achievement >= 50 && $achievement <= 65) {
+                } elseif ($achievement >= 50 && $achievement < 65) {
                     $metrics['payment_percentage'] = 50;
                     $metrics['payment_criteria'] = '50% Total Package';
-                } elseif ($achievement > 65 && $achievement <= 90) {
+                } elseif ($achievement >= 65 && $achievement < 90) {
                     $metrics['payment_percentage'] = 75;
                     $metrics['payment_criteria'] = '75% Total Package';
                 } else {
@@ -467,28 +467,41 @@ class PayrollAdminController extends Controller implements HasMiddleware
                         }
                     }
 
-                    // Payslip Earnings preview mirrors the package values when
-                    // no stored payment records exist yet.
-                    $metrics['paid_basic'] = (float) ($metrics['basic_salary'] ?? 0);
-                    $metrics['paid_travel'] = (float) ($metrics['travel_reimbursement'] ?? 0);
-                    $metrics['paid_vehicle'] = (float) ($metrics['vehicle_allowance'] ?? 0);
-                    $metrics['paid_incentive'] = (float) ($metrics['incentive'] ?? 0);
-                    $metrics['paid_performance'] = (float) ($metrics['performance_allowance'] ?? 0);
-                    $metrics['paid_position'] = (float) ($metrics['position_allowance'] ?? 0);
+                    // Payslip Earnings preview mirrors the package values (scaled by achievement for sales staff)
+                    // when no stored payment records exist yet.
+                    $pct = ($metrics['payment_percentage'] ?? 0) / 100;
+                    if ($isSalesStaff) {
+                        $metrics['paid_basic'] = $isPermanent ? (float) ($metrics['basic_salary'] ?? 0) : round($pct * ($metrics['basic_salary'] ?? 0), 2);
+                        $metrics['paid_travel'] = round($pct * ($metrics['travel_reimbursement'] ?? 0), 2);
+                        $metrics['paid_vehicle'] = round($pct * ($metrics['vehicle_allowance'] ?? 0), 2);
+                        $metrics['paid_incentive'] = round($pct * ($metrics['incentive'] ?? 0), 2);
+                        $metrics['paid_performance'] = round($pct * ($metrics['performance_allowance'] ?? 0), 2);
+                        $metrics['paid_position'] = round($pct * ($metrics['position_allowance'] ?? 0), 2);
+                    } else {
+                        $metrics['paid_basic'] = (float) ($metrics['basic_salary'] ?? 0);
+                        $metrics['paid_travel'] = (float) ($metrics['travel_reimbursement'] ?? 0);
+                        $metrics['paid_vehicle'] = (float) ($metrics['vehicle_allowance'] ?? 0);
+                        $metrics['paid_incentive'] = (float) ($metrics['incentive'] ?? 0);
+                        $metrics['paid_performance'] = (float) ($metrics['performance_allowance'] ?? 0);
+                        $metrics['paid_position'] = (float) ($metrics['position_allowance'] ?? 0);
+                    }
                     $metrics['paid_mobile'] = (float) ($metrics['mobile_payment'] ?? 0);
 
                     $epfEmployee = 0.0;
-                    $incomeTax = 0.0;
+                    $apiitTax = 0.0;
                     if ($isPermanent) {
                         $epfEmployee = SriLankanTaxService::epfEmployee($metrics['basic_salary']);
-                        $incomeTax = SriLankanTaxService::paye($metrics['how_much_paid'], [
+                        // Mirrors PayrollCalculationService: APIT is charged on the
+                        // whole amount paid this month, never on the package.
+                        $apiitTax = SriLankanTaxService::apiit($metrics['how_much_paid'], [
                             'process'       => 'admin_metrics_preview',
                             'employee_code' => $employee?->employee_code,
                             'period'        => (string) $period,
                         ]);
                     }
                     $metrics['epf'] = round($epfEmployee, 2);
-                    $metrics['income_tax'] = round($incomeTax, 2);
+                    $metrics['income_tax'] = 0;
+                    $metrics['apiit_tax'] = round($apiitTax, 2);
 
                     $loanDeductions = LoanDeductionService::activeForPeriod((int) ($employee?->id ?? 0), (string) $period);
                     $metrics['loan_deductions'] = $loanDeductions['items'];
@@ -516,7 +529,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     }
                     $metrics['stamp_fee'] = $stampFee;
 
-                    $metrics['total_deductions'] = round($epfEmployee + $incomeTax + $metrics['recover_amount'] + $loanDeductions['total'] + $whtTax + $stampFee, 2);
+                    $metrics['total_deductions'] = round($epfEmployee + $apiitTax + $metrics['recover_amount'] + $loanDeductions['total'] + $whtTax + $stampFee, 2);
                     $metrics['net_pay'] = round($metrics['how_much_paid'] - $metrics['total_deductions'], 2);
                 }
             } catch (\Throwable $th) {

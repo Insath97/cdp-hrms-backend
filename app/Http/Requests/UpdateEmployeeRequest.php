@@ -5,7 +5,9 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
 use App\Models\Bank;
+use App\Models\User;
 use App\Services\BankAccountFormatService;
 use App\Support\TextNormalizer;
 
@@ -91,7 +93,8 @@ class UpdateEmployeeRequest extends FormRequest
             }],
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
-            'username' => 'sometimes|nullable|string|max:255',
+            'username' => ['sometimes', 'nullable', 'string', 'max:255', Rule::unique('users', 'username')->ignore($this->linkedUserId())],
+            'password' => 'sometimes|nullable|string|min:8',
             'user_type' => 'sometimes|nullable|in:admin,staff',
             'role' => 'sometimes|nullable|string|max:255',
             'geofence_ids' => 'sometimes|nullable|array',
@@ -103,7 +106,23 @@ class UpdateEmployeeRequest extends FormRequest
     {
         return [
             'initials.regex' => 'Initials may only contain letters and spaces, e.g. "K D S".',
+            'username.unique' => 'This username is already taken.',
         ];
+    }
+
+    /**
+     * The id of the user account linked to the employee being updated, so the
+     * username uniqueness check ignores its own row.
+     */
+    private function linkedUserId(): ?int
+    {
+        $employeeId = $this->route('employee');
+
+        if (! $employeeId) {
+            return null;
+        }
+
+        return User::where('employee_id', $employeeId)->value('id');
     }
 
     public function withValidator($validator)
