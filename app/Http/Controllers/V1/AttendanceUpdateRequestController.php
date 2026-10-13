@@ -164,13 +164,29 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
                 $data['status'] = 'present';
             }
 
+            // Preserve the clock times that are about to be overwritten so the
+            // correction request keeps a record of the original values. The
+            // attendances table stores TIME only, so anchor them to the date.
+            $attendanceDate = ($attendance->date instanceof Carbon)
+                ? $attendance->date->toDateString()
+                : Carbon::parse($attendance->date)->toDateString();
+
+            $previousClockIn = $attendance->clock_in
+                ? Carbon::parse($attendanceDate . ' ' . $attendance->clock_in->format('H:i:s'))
+                : null;
+            $previousClockOut = $attendance->clock_out
+                ? Carbon::parse($attendanceDate . ' ' . $attendance->clock_out->format('H:i:s'))
+                : null;
+
             $attendance->update($data);
 
             // Update request status
             $updateRequest->update([
                 'status' => 'approved',
                 'approved_by' => $employee->id ?? null,
-                'approved_at' => now()
+                'approved_at' => now(),
+                'previous_clock_in' => $previousClockIn,
+                'previous_clock_out' => $previousClockOut
             ]);
 
             // Trigger rule processing

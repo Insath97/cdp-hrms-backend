@@ -17,6 +17,8 @@ class AttendanceUpdateRequest extends Model
         'manager_id',
         'requested_clock_in',
         'requested_clock_out',
+        'previous_clock_in',
+        'previous_clock_out',
         'reason',
         'rejection_reason',
         'status',
@@ -29,6 +31,8 @@ class AttendanceUpdateRequest extends Model
     protected $casts = [
         'requested_clock_in' => 'datetime',
         'requested_clock_out' => 'datetime',
+        'previous_clock_in' => 'datetime',
+        'previous_clock_out' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
     ];
