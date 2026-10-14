@@ -211,9 +211,9 @@
                 </div>
             @endif
 
-            <div class="btn-container">
+            {{-- <div class="btn-container">
                 <a href="{{ $data['action_url'] }}" class="btn" target="_blank">Review Request</a>
-            </div>
+            </div> --}}
         </div>
 
         <div class="footer">

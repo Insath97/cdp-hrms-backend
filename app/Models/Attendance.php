@@ -33,6 +33,7 @@ class Attendance extends Model
         'converted_at',
         'converted_leave_type',
         'grace_period_applied',
+        'session_expired_at',
     ];
 
     protected $casts = [
@@ -44,6 +45,7 @@ class Attendance extends Model
         'out_latitude' => 'decimal:8',
         'out_longitude' => 'decimal:8',
         'working_hours' => 'decimal:2',
+        'session_expired_at' => 'datetime',
     ];
 
     // Relationships
@@ -164,6 +166,17 @@ class Attendance extends Model
 
     public function scopeActive($query)
     {
-        return $query->whereNull('clock_out');
+        return $query->whereNull('clock_out')->whereNull('session_expired_at');
+    }
+
+    /**
+     * A session is open when the employee has clocked in but has neither
+     * clocked out nor had the session closed by the expiry process.
+     */
+    public function isSessionOpen(): bool
+    {
+        return $this->clock_in !== null
+            && $this->clock_out === null
+            && $this->session_expired_at === null;
     }
 }
