@@ -12,6 +12,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 
 class EpfReportController extends Controller
 {
@@ -39,7 +45,7 @@ class EpfReportController extends Controller
         return null;
     }
     /**
-     * EPF Report CSV.
+     * EPF Report Excel (.xlsx).
      * Filters employees whose employee_code does NOT contain "RT".
      * Query param: month = YYYY-MM or YYYYMM (Contribution Period). Defaults to current month.
      * Optional: employer_number, occupation_grade (placeholders).
@@ -70,48 +76,12 @@ class EpfReportController extends Controller
             return $blocked;
         }
 
-        // All employees whose employee_code does NOT contain "RT" (case-sensitive matching as per spec: "dont have RT")
+        // Active employees only (exclude inactive/terminated), whose employee_code does NOT contain "RT"
         $employees = Employee::with(['designation', 'salaryDetail'])
+            ->where('is_active', true)
             ->whereRaw("employee_code NOT LIKE '%RT%'")
             ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
             ->get();
-
-        $rows = [];
-        foreach ($employees as $emp) {
-            $basic = $this->resolveBasicSalary($emp, $period);
-
-            $totalContribution = round($basic * 0.20, 2);
-            $employerContribution = round($basic * 0.12, 2);
-            $memberContribution = round($basic * 0.08, 2);
-
-            $deductions = $this->resolveDeductions($emp, $periodYm);
-            $totalEarnings = round(max(0, $basic - $deductions), 2);
-
-            $memberStatus = $this->resolveMemberStatus($emp, $period);
-            $surname = $this->resolveSurname($emp);
-            $initials = $this->resolveInitials($emp);
-
-            // Format money as 2 decimals with dot, no thousands separator for CSV numeric fields
-            $fmt = fn($v) => number_format((float) $v, 2, '.', '');
-
-            $rows[] = [
-                'nic' => (string) ($emp->id_number ?? ''),
-                'surname' => $surname,
-                'initials' => $initials,
-                'member_number' => (string) ($emp->employee_code ?? ''),
-                'total_contribution' => $fmt($totalContribution),
-                'employer_contribution' => $fmt($employerContribution),
-                'member_contribution' => $fmt($memberContribution),
-                'total_earnings' => $fmt($totalEarnings),
-                'member_status' => $memberStatus,
-                'zone' => 'A',
-                'employer_number' => $employerNumber,
-                'contribution_period' => $periodYyyymm,
-                'data_submission_number' => '1',
-                'no_of_days_worked' => '30',
-                'occupation_grade' => $occupationGrade,
-            ];
-        }
 
         $headers = [
             'NIC Number',
@@ -119,8 +89,8 @@ class EpfReportController extends Controller
             'Initials',
             'Member Number',
             'Total Contribution',
-            'Employer\'s Contribution',
-            'Member\'s contribution',
+            "Employer's Contribution",
+            "Member's Contribution",
             'Total Earnings',
             'Member Status',
             'Zone',
@@ -131,40 +101,143 @@ class EpfReportController extends Controller
             'Occupation Classification Grade',
         ];
 
-        $filename = "EPF_Report_{$periodYyyymm}.csv";
+        // Build rows
+        $rows = [];
+        $fmt = fn($v) => number_format((float) $v, 2, '.', '');
 
-        $callback = function () use ($headers, $rows) {
-            $out = fopen('php://output', 'w');
-            // UTF-8 BOM for Excel compatibility
-            fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
-            fputcsv($out, $headers);
-            foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r['nic'],
-                    $r['surname'],
-                    $r['initials'],
-                    $r['member_number'],
-                    $r['total_contribution'],
-                    $r['employer_contribution'],
-                    $r['member_contribution'],
-                    $r['total_earnings'],
-                    $r['member_status'],
-                    $r['zone'],
-                    $r['employer_number'],
-                    $r['contribution_period'],
-                    $r['data_submission_number'],
-                    $r['no_of_days_worked'],
-                    $r['occupation_grade'],
-                ]);
+        foreach ($employees as $emp) {
+            $basic = $this->resolveBasicSalary($emp, $period);
+            $totalContribution    = round($basic * 0.20, 2);
+            $employerContribution = round($basic * 0.12, 2);
+            $memberContribution   = round($basic * 0.08, 2);
+            $deductions           = $this->resolveDeductions($emp, $periodYm);
+            $totalEarnings        = round(max(0, $basic - $deductions), 2);
+
+            $rows[] = [
+                (string) ($emp->id_number ?? ''),
+                // $this->resolveSurname($emp),
+                // $this->resolveInitials($emp),
+                $emp->surname,
+                $emp->initials,
+                (string) ($emp->employee_code ?? ''),
+                $fmt($totalContribution),
+                $fmt($employerContribution),
+                $fmt($memberContribution),
+                $fmt($totalEarnings),
+                $this->resolveMemberStatus($emp, $period),
+                'A',
+                $employerNumber,
+                $periodYyyymm,
+                '1',
+                '30',
+                $occupationGrade,
+            ];
+        }
+
+        // Build spreadsheet
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('EPF Report');
+
+        // Write header row
+        $sheet->fromArray($headers, null, 'A1');
+
+        // Style header row: bold, background colour, center-aligned, border
+        $headerRange = 'A1:O1';
+        $sheet->getStyle($headerRange)->applyFromArray([
+            'font' => [
+                'bold'  => true,
+                'color' => ['argb' => 'FFFFFFFF'],
+                'size'  => 11,
+            ],
+            'fill' => [
+                'fillType'   => Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FF1E6F9F'],
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical'   => Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color'       => ['argb' => 'FFAAAAAA'],
+                ],
+            ],
+        ]);
+        $sheet->getRowDimension(1)->setRowHeight(30);
+
+        // Write data rows cell-by-cell so we can force text type on
+        // NIC Number (col A) and Member Number (col D), preventing Excel
+        // from displaying long numeric NICs in scientific notation (e.g. 1.98E+11).
+        // Note: getCellByColumnAndRow() was removed in PhpSpreadsheet 2+; use getCell() with coordinate strings.
+        $columnMap = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
+        foreach ($rows as $rowIndex => $row) {
+            $excelRow = $rowIndex + 2; // data starts at row 2
+            // Column A: NIC Number — always treat as text to prevent scientific notation
+            $sheet->getCell('A' . $excelRow)
+                  ->setValueExplicit((string) $row[0], DataType::TYPE_STRING);
+            // Column B: Surname
+            $sheet->getCell('B' . $excelRow)->setValue($row[1]);
+            // Column C: Initials
+            $sheet->getCell('C' . $excelRow)->setValue($row[2]);
+            // Column D: Member Number — treat as text to preserve leading zeros / alphanumeric codes
+            $sheet->getCell('D' . $excelRow)
+                  ->setValueExplicit((string) $row[3], DataType::TYPE_STRING);
+            // Columns E–O: remaining values (numeric/string auto-detected)
+            foreach (array_slice($row, 4) as $colOffset => $value) {
+                $sheet->getCell($columnMap[$colOffset + 4] . $excelRow)->setValue($value);
             }
-            fclose($out);
+        }
+
+        // Style data rows: borders + alternating row colours
+        $totalRows = count($rows);
+        if ($totalRows > 0) {
+            $dataRange = 'A2:O' . ($totalRows + 1);
+            $sheet->getStyle($dataRange)->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                        'color'       => ['argb' => 'FFDDDDDD'],
+                    ],
+                ],
+                'alignment' => [
+                    'vertical' => Alignment::VERTICAL_CENTER,
+                ],
+            ]);
+
+            // Alternating row fill for readability
+            for ($i = 2; $i <= $totalRows + 1; $i++) {
+                if ($i % 2 === 0) {
+                    $sheet->getStyle("A{$i}:O{$i}")->getFill()
+                        ->setFillType(Fill::FILL_SOLID)
+                        ->getStartColor()->setARGB('FFF0F7FC');
+                }
+            }
+        }
+
+        // Auto-fit column widths
+        foreach (range('A', 'O') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Freeze the header row
+        $sheet->freezePane('A2');
+
+        $filename = "EPF_Report_{$periodYyyymm}.xlsx";
+
+        $writer = new Xlsx($spreadsheet);
+
+        $callback = function () use ($writer) {
+            $writer->save('php://output');
         };
 
         return new StreamedResponse($callback, 200, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Type'        => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-            'Cache-Control' => 'no-cache, no-store, must-revalidate',
-            'Pragma' => 'no-cache',
+            'Cache-Control'       => 'no-cache, no-store, must-revalidate',
+            'Pragma'              => 'no-cache',
         ]);
     }
 
@@ -189,6 +262,7 @@ class EpfReportController extends Controller
         }
 
         $employees = Employee::with(['designation'])
+            ->where('is_active', true)
             ->whereRaw("employee_code NOT LIKE '%RT%'")
             ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
             ->get();
@@ -220,8 +294,10 @@ class EpfReportController extends Controller
             $rows[] = [
                 'id' => $emp->id,
                 'nic' => (string)($emp->id_number ?? ''),
-                'surname' => $this->resolveSurname($emp),
-                'initials' => $this->resolveInitials($emp),
+                // 'surname' => $this->resolveSurname($emp),
+                // 'initials' => $this->resolveInitials($emp),
+                'surname' => $emp->surname,
+                'initials' => $emp->initials,
                 'member_number' => (string)($emp->employee_code ?? ''),
                 'basic_salary' => round($basic,2),
                 'total_contribution' => $totalContribution,

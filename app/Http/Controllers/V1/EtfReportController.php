@@ -63,6 +63,7 @@ class EtfReportController extends Controller
         }
 
         $employees = Employee::with(['designation', 'salaryDetail'])
+            ->where('is_active', true)
             ->whereRaw("employee_code NOT LIKE '%RT%'")
             ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
             ->get();
@@ -126,6 +127,7 @@ class EtfReportController extends Controller
         }
 
         $employees = Employee::with(['designation'])
+            ->where('is_active', true)
             ->whereRaw("employee_code NOT LIKE '%RT%'")
             ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
             ->get();
