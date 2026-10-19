@@ -58,6 +58,10 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->byEmployee($request->employee_id);
             }
 
+            if ($request->filled('user_id')) {
+                $query->byUser($request->user_id);
+            }
+
             if ($request->has('date')) {
                 $query->byDate($request->date);
             }
@@ -66,11 +70,39 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->dateRange($request->from_date, $request->to_date);
             }
 
-            $attendances = $query->with(['employee', 'user.employee'])->paginate($perPage);
+            if ($request->filled('department_id')) {
+                $query->whereHas('employee', function ($q) use ($request) {
+                    $q->where('department_id', $request->department_id);
+                });
+            }
+
+            if ($request->filled('branch_id')) {
+                $query->whereHas('employee', function ($q) use ($request) {
+                    $q->where('branch_id', $request->branch_id);
+                });
+            }
+
+            if ($request->filled('employee_ids')) {
+                $employeeIds = collect(explode(',', $request->employee_ids))
+                    ->map(fn ($value) => (int) trim($value))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if (!empty($employeeIds)) {
+                    $query->whereIn('employee_id', $employeeIds);
+                }
+            }
+
+            $attendances = $query->with(['employee.department', 'employee.branch', 'user.employee'])
+                ->orderByDesc('date')
+                ->orderByDesc('id')
+                ->paginate($perPage);
 
             Log::info('Attendances index accessed', [
                 'user_id' => Auth::id(),
-                'filters' => $request->only(['search', 'employee_id', 'date', 'from_date', 'to_date', 'per_page']),
+                'filters' => $request->only(['search', 'employee_id', 'date', 'from_date', 'to_date', 'department_id', 'branch_id', 'employee_ids', 'per_page']),
                 'count' => $attendances->count()
             ]);
 
