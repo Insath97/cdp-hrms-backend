@@ -16,7 +16,7 @@ class UserAllowedLocationController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Geofence Manage', only: ['index', 'store', 'update', 'destroy', 'assignToUser', 'assignGeofences']),
+            new Middleware('permission:Geofence Manage', only: ['index', 'store', 'update', 'destroy', 'assignToUser', 'assignGeofences', 'assignBulk']),
         ];
     }
 
@@ -24,7 +24,7 @@ class UserAllowedLocationController extends Controller implements HasMiddleware
     {
         return response()->json([
             'status' => 'success',
-            'data' => UserAllowedLocation::with(['user:id,name', 'geofence'])->get(),
+            'data' => UserAllowedLocation::with(['user:id,name,employee_id', 'user.employee:id,employee_code,f_name,l_name', 'geofence'])->get(),
         ]);
     }
 
@@ -119,6 +119,36 @@ class UserAllowedLocationController extends Controller implements HasMiddleware
             'status' => 'success',
             'message' => count($created) . ' geofence(s) added as allowed locations',
             'data' => $created,
+        ], 201);
+    }
+
+    public function assignBulk(Request $request)
+    {
+        $request->validate([
+            'user_ids' => 'required|array',
+            'user_ids.*' => 'exists:users,id',
+            'geofence_ids' => 'required|array',
+            'geofence_ids.*' => 'exists:geofences,id',
+        ]);
+
+        $created = 0;
+        foreach ($request->user_ids as $userId) {
+            foreach ($request->geofence_ids as $gid) {
+                UserAllowedLocation::firstOrCreate([
+                    'user_id' => $userId,
+                    'geofence_id' => $gid,
+                ]);
+                $created++;
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $created . ' assignment(s) created/ensured',
+            'data' => [
+                'user_ids' => $request->user_ids,
+                'geofence_ids' => $request->geofence_ids,
+            ],
         ], 201);
     }
 
