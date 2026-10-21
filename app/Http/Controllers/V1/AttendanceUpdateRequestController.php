@@ -162,6 +162,8 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
                 $clock_in = $data['clock_in'] ?? $attendance->clock_in;
                 $data['working_hours'] = Attendance::calculateWorkingHours($clock_in, $data['clock_out']);
                 $data['status'] = 'present';
+            } elseif (isset($data['clock_in'])) {
+                $data['status'] = 'present';
             }
 
             // Preserve the clock times that are about to be overwritten so the

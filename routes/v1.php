@@ -222,6 +222,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::post('/user-allowed-locations/check', [UserAllowedLocationController::class, 'checkLocation']);
     Route::post('/user-allowed-locations/assign/{user}', [UserAllowedLocationController::class, 'assignToUser']);
     Route::post('/user-allowed-locations/assign-geofences/{user}', [UserAllowedLocationController::class, 'assignGeofences']);
+    Route::post('/user-allowed-locations/assign-bulk', [UserAllowedLocationController::class, 'assignBulk']);
     Route::apiResource('/user-allowed-locations', UserAllowedLocationController::class)->only(['index', 'store', 'update', 'destroy']);
 
     // Geofence routes
