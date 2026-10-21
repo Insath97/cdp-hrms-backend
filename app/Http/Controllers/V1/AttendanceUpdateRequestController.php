@@ -162,9 +162,8 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
                 $clock_in = $data['clock_in'] ?? $attendance->clock_in;
                 $data['working_hours'] = Attendance::calculateWorkingHours($clock_in, $data['clock_out']);
                 $data['status'] = 'present';
-                // A corrected clock-out resolves a session that was auto-closed by
-                // the expiry process, so clear that marker.
-                $data['session_expired_at'] = null;
+            } elseif (isset($data['clock_in'])) {
+                $data['status'] = 'present';
             }
 
             // Preserve the clock times that are about to be overwritten so the

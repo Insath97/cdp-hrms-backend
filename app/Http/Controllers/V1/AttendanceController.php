@@ -58,6 +58,10 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->byEmployee($request->employee_id);
             }
 
+            if ($request->filled('user_id')) {
+                $query->byUser($request->user_id);
+            }
+
             if ($request->has('date')) {
                 $query->byDate($request->date);
             }
@@ -66,11 +70,39 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->dateRange($request->from_date, $request->to_date);
             }
 
-            $attendances = $query->with(['employee', 'user.employee'])->paginate($perPage);
+            if ($request->filled('department_id')) {
+                $query->whereHas('employee', function ($q) use ($request) {
+                    $q->where('department_id', $request->department_id);
+                });
+            }
+
+            if ($request->filled('branch_id')) {
+                $query->whereHas('employee', function ($q) use ($request) {
+                    $q->where('branch_id', $request->branch_id);
+                });
+            }
+
+            if ($request->filled('employee_ids')) {
+                $employeeIds = collect(explode(',', $request->employee_ids))
+                    ->map(fn ($value) => (int) trim($value))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if (!empty($employeeIds)) {
+                    $query->whereIn('employee_id', $employeeIds);
+                }
+            }
+
+            $attendances = $query->with(['employee.department', 'employee.branch', 'user.employee'])
+                ->orderByDesc('date')
+                ->orderByDesc('id')
+                ->paginate($perPage);
 
             Log::info('Attendances index accessed', [
                 'user_id' => Auth::id(),
-                'filters' => $request->only(['search', 'employee_id', 'date', 'from_date', 'to_date', 'per_page']),
+                'filters' => $request->only(['search', 'employee_id', 'date', 'from_date', 'to_date', 'department_id', 'branch_id', 'employee_ids', 'per_page']),
                 'count' => $attendances->count()
             ]);
 
@@ -132,8 +164,161 @@ class AttendanceController extends Controller implements HasMiddleware
                 }
             }
 
+            // A correction request (submitted with a reason) creates/updates a record
+            // for a past or missed session and is subject to manager approval, so the
+            // clock-in geofence must not be enforced for it.
+            $isCorrectionRequest = $request->filled('reason');
+
+            if ($isCorrectionRequest) {
+                $authUser = Auth::user();
+                $authEmployee = $authUser?->employee;
+
+                $targetUserId = $data['user_id'] ?? $authUser?->id;
+                $targetUser = $targetUserId ? User::with('employee')->find($targetUserId) : null;
+
+                if (!$authEmployee || !$authEmployee->reporting_manager_id) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'No reporting manager assigned. Please contact your administrator.',
+                    ], 403);
+                }
+
+                // Block a new request while one is still pending for the same date.
+                $hasPendingRequest = \App\Models\AttendanceUpdateRequest::where('user_id', $targetUserId)
+                    ->where('status', 'pending')
+                    ->whereHas('attendance', function ($q) use ($data) {
+                        $q->whereDate('date', $data['date']);
+                    })
+                    ->exists();
+
+                if ($hasPendingRequest) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'You already have a pending attendance update request for this date. Please wait for it to be reviewed.',
+                    ], 409);
+                }
+
+                $date = $data['date'] ?? now()->toDateString();
+
+                // A correction is only allowed when there is no existing record for the
+                // date, otherwise it is an update of an existing record. An unpopulated
+                // placeholder row (created by a previous correction that was rejected) may
+                // be reused so the employee can resubmit for the same date.
+                $existing = Attendance::where('user_id', $targetUserId)
+                    ->whereDate('date', $date)
+                    ->first();
+
+                $isReusablePlaceholder = $existing
+                    && !$existing->clock_in
+                    && !$existing->clock_out;
+
+                if ($existing && !$isReusablePlaceholder) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'An attendance record already exists for this date. Please use the update option.',
+                    ], 409);
+                }
+
+                $requestedClockIn = null;
+                $requestedClockOut = null;
+
+                if (isset($data['clock_in']) && $data['clock_in']) {
+                    $clockInTime = $data['clock_in'];
+                    $requestedClockIn = (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false)
+                        ? Carbon::parse($date . ' ' . $clockInTime)
+                        : Carbon::parse($clockInTime);
+                }
+
+                if (isset($data['clock_out']) && $data['clock_out']) {
+                    $clockOutTime = $data['clock_out'];
+                    $requestedClockOut = (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false)
+                        ? Carbon::parse($date . ' ' . $clockOutTime)
+                        : Carbon::parse($clockOutTime);
+                }
+
+                // Reuse the placeholder record the manager will approve against, or create one.
+                $attendance = $isReusablePlaceholder
+                    ? $existing
+                    : Attendance::create([
+                        'user_id' => $targetUserId,
+                        'employee_id' => $data['employee_id'] ?? $targetUser?->employee?->id,
+                        'date' => $date,
+                        'status' => 'absent',
+                    ]);
+
+                $updateRequest = \App\Models\AttendanceUpdateRequest::create([
+                    'attendance_id' => $attendance->id,
+                    'user_id' => $targetUserId,
+                    'employee_id' => $authEmployee->id,
+                    'manager_id' => $authEmployee->reporting_manager_id,
+                    'requested_clock_in' => $requestedClockIn,
+                    'requested_clock_out' => $requestedClockOut,
+                    'reason' => $request->input('reason', 'Attendance correction requested by employee.'),
+                    'status' => 'pending',
+                ]);
+
+                $this->logActivity('CREATE', 'AttendanceUpdateRequest', "Requested attendance correction for date {$date} (Request ID: {$updateRequest->id})", $data);
+
+                Log::info('Attendance correction requested', [
+                    'user_id' => $targetUserId,
+                    'attendance_id' => $attendance->id,
+                    'request_id' => $updateRequest->id
+                ]);
+
+                // Send email notification to the reporting manager
+                try {
+                    $updateRequest->load('manager');
+                    $manager = $updateRequest->manager;
+                    if ($manager) {
+                        $managerEmail = $manager->email;
+                        if (empty($managerEmail)) {
+                            $managerUser = \App\Models\User::where('employee_id', $manager->id)->first();
+                            if ($managerUser) {
+                                $managerEmail = $managerUser->email;
+                            }
+                        }
+
+                        if (!empty($managerEmail)) {
+                            $employeeName = $authEmployee->full_name ?? ($authEmployee->f_name . ' ' . $authEmployee->l_name);
+                            $emailData = [
+                                'manager_name' => $manager->full_name ?? ($manager->f_name . ' ' . $manager->l_name),
+                                'employee_name' => $employeeName,
+                                'date' => $date,
+                                'requested_clock_in' => $requestedClockIn ? $requestedClockIn->toTimeString() : null,
+                                'requested_clock_out' => $requestedClockOut ? $requestedClockOut->toTimeString() : null,
+                                'reason' => $updateRequest->reason,
+                                'action_url' => rtrim(config('app.frontend_url'), '/') . '/attendances/update-requests'
+                            ];
+
+                            \Illuminate\Support\Facades\Mail::to($managerEmail)->send(new \App\Mail\AttendanceUpdateRequestMail($emailData));
+                            Log::info('Attendance correction request email sent to reporting manager', [
+                                'manager_id' => $manager->id,
+                                'manager_email' => $managerEmail,
+                                'request_id' => $updateRequest->id
+                            ]);
+                        } else {
+                            Log::warning('Could not find email address for reporting manager', [
+                                'manager_id' => $manager->id,
+                                'request_id' => $updateRequest->id
+                            ]);
+                        }
+                    }
+                } catch (\Throwable $emailError) {
+                    Log::error('Failed to send attendance correction request email to manager', [
+                        'error' => $emailError->getMessage(),
+                        'request_id' => $updateRequest->id
+                    ]);
+                }
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Attendance correction request submitted for manager approval',
+                    'data' => $updateRequest->load('manager')
+                ], 202);
+            }
+
             // Geofence / allowed-location check for clock-in
-            if (isset($data['clock_in']) && !isset($data['clock_out'])) {
+            if (isset($data['clock_in']) && !isset($data['clock_out']) && !$isCorrectionRequest) {
                 $latitude = $request->input('latitude');
                 $longitude = $request->input('longitude');
 
@@ -342,6 +527,21 @@ class AttendanceController extends Controller implements HasMiddleware
 
             // If not a Super Admin, and has a reporting manager, create a request instead
             if (!$user->hasRole('Super Admin') && $employee && $employee->reporting_manager_id) {
+                // Block a new request while one is still pending for the same date.
+                $hasPendingRequest = \App\Models\AttendanceUpdateRequest::where('user_id', $user->id)
+                    ->where('status', 'pending')
+                    ->whereHas('attendance', function ($q) use ($attendance) {
+                        $q->whereDate('date', $attendance->date);
+                    })
+                    ->exists();
+
+                if ($hasPendingRequest) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'You already have a pending attendance update request for this date. Please wait for it to be reviewed.',
+                    ], 409);
+                }
+
                 // Prepare the requested times
                 $requestedClockIn = null;
                 $requestedClockOut = null;

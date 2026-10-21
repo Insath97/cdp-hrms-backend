@@ -14,6 +14,12 @@ Schedule::command('notifications:birthdays')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Send work anniversary notifications daily at 8:02 AM
+Schedule::command('notifications:anniversaries')
+    ->dailyAt('08:02')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Close sessions still open after office end time + 1 hour (e.g. end 5 PM -> expires 6 PM, swept at 6:01)
 Schedule::command('attendance:expire-sessions')
     ->hourlyAt(1)
