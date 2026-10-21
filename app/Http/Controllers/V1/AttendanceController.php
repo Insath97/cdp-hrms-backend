@@ -774,12 +774,14 @@ class AttendanceController extends Controller implements HasMiddleware
                 $attendance = Attendance::where('id', $recordId)
                     ->where('user_id', $user->id)
                     ->whereNull('clock_out')
+                    ->whereNull('session_expired_at')
                     ->first();
             }
             if (!$attendance) {
                 $attendance = Attendance::where('user_id', $user->id)
                     ->whereDate('date', now()->toDateString())
                     ->whereNull('clock_out')
+                    ->whereNull('session_expired_at')
                     ->latest()
                     ->first();
             }
