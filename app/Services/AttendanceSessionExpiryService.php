@@ -27,6 +27,7 @@ class AttendanceSessionExpiryService
 
         $query = Attendance::query()
             ->whereNull('clock_out')
+            ->whereNull('session_expired_at')
             ->whereNotNull('clock_in');
 
         if ($now->lt($this->deadlineFor($today))) {
@@ -48,6 +49,7 @@ class AttendanceSessionExpiryService
         $sessions = Attendance::query()
             ->where('user_id', $userId)
             ->whereNull('clock_out')
+            ->whereNull('session_expired_at')
             ->whereNotNull('clock_in')
             ->whereDate('date', '<', $date)
             ->get();
@@ -70,34 +72,24 @@ class AttendanceSessionExpiryService
     }
 
     /**
+     * Mark a session as closed without fabricating a clock-out time. The
+     * employee never clocked out, so clock_out and working_hours stay null;
+     * the day is left as an incomplete record that can be resolved through an
+     * attendance correction.
+     *
      * @param  Collection<int, Attendance>  $sessions
      */
     private function closeSessions(Collection $sessions): int
     {
         $expired = 0;
+        $now = Carbon::now();
 
         foreach ($sessions as $attendance) {
-            $date = $attendance->date instanceof Carbon
-                ? $attendance->date->toDateString()
-                : Carbon::parse($attendance->date)->toDateString();
-
-            $clockIn = $this->toTime($attendance->clock_in);
-
-            if ($clockIn === null) {
+            if ($attendance->clock_in === null) {
                 continue;
             }
 
-            $deadline = $this->deadlineFor($date)->format('H:i:s');
-
-            // Never record a clock-out earlier than the clock-in itself
-            $clockOut = $clockIn > $deadline ? $clockIn : $deadline;
-
-            $attendance->clock_out = $clockOut;
-            $attendance->working_hours = Attendance::calculateWorkingHours(
-                Carbon::parse($date.' '.$clockIn),
-                Carbon::parse($date.' '.$clockOut)
-            );
-            $attendance->status = 'present';
+            $attendance->session_expired_at = $now;
             $attendance->save();
 
             $expired++;
@@ -105,10 +97,12 @@ class AttendanceSessionExpiryService
             Log::info('Attendance session expired', [
                 'attendance_id' => $attendance->id,
                 'user_id' => $attendance->user_id,
-                'date' => $date,
-                'clock_in' => $clockIn,
-                'clock_out' => $clockOut,
-                'working_hours' => $attendance->working_hours,
+                'date' => $attendance->date instanceof Carbon
+                    ? $attendance->date->toDateString()
+                    : Carbon::parse($attendance->date)->toDateString(),
+                'clock_in' => $this->toTime($attendance->clock_in),
+                'session_expired_at' => $now->toDateTimeString(),
+                'note' => 'Session closed without a clock-out time; awaiting attendance correction.',
             ]);
         }
 
