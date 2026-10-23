@@ -142,8 +142,9 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::get('update-requests/{id}', [AttendanceUpdateRequestController::class, 'show']);
         Route::post('update-requests/{id}/approve', [AttendanceUpdateRequestController::class, 'approve']);
         Route::post('update-requests/{id}/reject', [AttendanceUpdateRequestController::class, 'reject']);
-        Route::get('user/{user_id}', [AttendanceController::class, 'userAttendance']);
     });
+    // User attendance calendar/history must be defined before apiResource to avoid show() conflict
+    Route::get('attendances/user/{user_id}', [AttendanceController::class, 'userAttendance']);
     Route::put('attendances', [AttendanceController::class, 'update']);
     Route::post('attendances/{id}/restore', [AttendanceController::class, 'restore']);
     Route::delete('attendances/{id}/force-delete', [AttendanceController::class, 'forceDelete']);

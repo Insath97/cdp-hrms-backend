@@ -31,8 +31,64 @@ class AttendanceController extends Controller implements HasMiddleware
             new Middleware('permission:Attendance Create', only: ['store']),
             new Middleware('permission:Attendance Update|Attendance Correct', only: ['update', 'clockOut']),
             new Middleware('permission:Attendance Delete', only: ['destroy', 'forceDelete', 'restore']),
-            new Middleware('permission:Attendance Report|Attendance View Company', only: ['dailyReport', 'weeklyReport', 'monthlyReport']),
+            new Middleware('permission:Attendance Report|Attendance View Company', only: ['report', 'dailyReport', 'weeklyReport', 'monthlyReport']),
         ];
+    }
+
+    /**
+     * Apply active employee filters and department/branch filters to a user query
+     * so attendance reports only include active employees and match selected filters.
+     */
+    private function applyReportFilters($query, Request $request)
+    {
+        // Only include active users with active employees (excludes inactive and terminated employees)
+        $query->where('is_active', true)
+            ->whereHas('employee', function ($q) {
+                $q->where('is_active', true)
+                    ->where(function ($sub) {
+                        $sub->where('employment_status', 'active')
+                            ->orWhereNull('employment_status');
+                    });
+            });
+
+        if ($request->filled('department_id')) {
+            $query->whereHas('employee', function ($q) use ($request) {
+                $q->where('department_id', $request->department_id);
+            });
+        }
+
+        if ($request->filled('branch_id')) {
+            $query->whereHas('employee', function ($q) use ($request) {
+                $q->where('branch_id', $request->branch_id);
+            });
+        }
+
+        if ($request->filled('employee_id')) {
+            $query->whereHas('employee', function ($q) use ($request) {
+                $q->where('id', $request->employee_id);
+            });
+        }
+
+        if ($request->filled('user_id')) {
+            $query->where('id', $request->user_id);
+        }
+
+        if ($request->filled('employee_ids')) {
+            $employeeIds = collect(explode(',', $request->employee_ids))
+                ->map(fn ($value) => (int) trim($value))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if (!empty($employeeIds)) {
+                $query->whereHas('employee', function ($q) use ($employeeIds) {
+                    $q->whereIn('id', $employeeIds);
+                });
+            }
+        }
+
+        return $query;
     }
 
     /**
@@ -388,7 +444,7 @@ class AttendanceController extends Controller implements HasMiddleware
                     $data['exceeds_grace_period'] = 0;
                 } else {
                     $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
-                    
+
                     if ($data['clock_in'] > $officeStartDateTime) {
                         $lateMinutes = (int) $officeStartDateTime->diffInMinutes($data['clock_in']);
                         $data['late_minutes'] = $lateMinutes;
@@ -689,7 +745,7 @@ class AttendanceController extends Controller implements HasMiddleware
             if ($testClockIn) {
                 $dateToUse = $data['date'] ?? ($attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date);
                 $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
-                
+
                 if ($testClockIn > $officeStartDateTime) {
                     $lateMinutes = (int) $officeStartDateTime->diffInMinutes($testClockIn);
                     $data['late_minutes'] = $lateMinutes;
@@ -1045,6 +1101,14 @@ class AttendanceController extends Controller implements HasMiddleware
     }
 
     /**
+     * Attendance Report (defaults to daily report)
+     */
+    public function report(Request $request)
+    {
+        return $this->dailyReport($request);
+    }
+
+    /**
      * Daily Attendance Report
      */
     public function dailyReport(Request $request)
@@ -1060,11 +1124,21 @@ class AttendanceController extends Controller implements HasMiddleware
                 ], 422);
             }
 
-            // Get all users with their employees
-            $users = User::with('employee.department')->get();
+            // Get all users with their employees (filtered by department/branch)
+            $users = $this->applyReportFilters(User::with('employee.department'), $request)->get();
+            $userIds = $users->pluck('id')->filter()->all();
+            $employeeIds = $users->pluck('employee.id')->filter()->all();
 
             // Get attendance for the specific date
             $attendances = Attendance::whereDate('date', $date)
+                ->where(function ($q) use ($userIds, $employeeIds) {
+                    if (!empty($userIds)) {
+                        $q->orWhereIn('user_id', $userIds);
+                    }
+                    if (!empty($employeeIds)) {
+                        $q->orWhereIn('employee_id', $employeeIds);
+                    }
+                })
                 ->get()
                 ->keyBy('user_id');
 
@@ -1212,8 +1286,15 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get the date from request
             $date = $request->input('date', Carbon::today()->toDateString());
 
-            $startOfWeek = Carbon::parse($date)->startOfWeek(Carbon::MONDAY)->toDateString();
-            $endOfWeek = Carbon::parse($date)->endOfWeek(Carbon::SUNDAY)->toDateString();
+            // An explicit range wins, so the report matches the period shown in
+            // the attendance log.
+            if ($request->filled('from_date') && $request->filled('to_date')) {
+                $startOfWeek = Carbon::parse($request->input('from_date'))->startOfDay()->toDateString();
+                $endOfWeek = Carbon::parse($request->input('to_date'))->endOfDay()->toDateString();
+            } else {
+                $startOfWeek = Carbon::parse($date)->startOfWeek(Carbon::MONDAY)->toDateString();
+                $endOfWeek = Carbon::parse($date)->endOfWeek(Carbon::SUNDAY)->toDateString();
+            }
 
             Log::info('Weekly report parameters', [
                 'date' => $date,
@@ -1221,8 +1302,10 @@ class AttendanceController extends Controller implements HasMiddleware
                 'end_of_week' => $endOfWeek
             ]);
 
-            // Get all users
-            $users = User::with('employee.department')->get();
+            // Get all users (filtered by department/branch)
+            $users = $this->applyReportFilters(User::with('employee.department'), $request)->get();
+            $userIds = $users->pluck('id')->filter()->all();
+            $employeeIds = $users->pluck('employee.id')->filter()->all();
 
             // Get all dates in the week
             $weekDates = $this->getDateRange($startOfWeek, $endOfWeek);
@@ -1230,6 +1313,14 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get all attendance for the week
             $attendances = Attendance::whereDate('date', '>=', $startOfWeek)
                 ->whereDate('date', '<=', $endOfWeek)
+                ->where(function ($q) use ($userIds, $employeeIds) {
+                    if (!empty($userIds)) {
+                        $q->orWhereIn('user_id', $userIds);
+                    }
+                    if (!empty($employeeIds)) {
+                        $q->orWhereIn('employee_id', $employeeIds);
+                    }
+                })
                 ->get()
                 ->groupBy('user_id');
 
@@ -1408,6 +1499,11 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get the month from request or use provided date
             $date = $request->input('date', Carbon::now()->toDateString());
 
+            // A "YYYY-MM" month value is also accepted
+            if ($request->filled('month')) {
+                $date = $request->input('month') . '-01';
+            }
+
             // Parse the date to get year and month
             $parsedDate = Carbon::parse($date);
             $year = $parsedDate->year;
@@ -1424,8 +1520,10 @@ class AttendanceController extends Controller implements HasMiddleware
                 'end_of_month' => $endOfMonth
             ]);
 
-            // Get all users
-            $users = User::with('employee.department')->get();
+            // Get all users (filtered by department/branch)
+            $users = $this->applyReportFilters(User::with('employee.department'), $request)->get();
+            $userIds = $users->pluck('id')->filter()->all();
+            $employeeIds = $users->pluck('employee.id')->filter()->all();
 
             // Get all dates in the month
             $monthDates = $this->getDateRange($startOfMonth, $endOfMonth);
@@ -1433,6 +1531,14 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get all attendance for the month
             $attendances = Attendance::whereDate('date', '>=', $startOfMonth)
                 ->whereDate('date', '<=', $endOfMonth)
+                ->where(function ($q) use ($userIds, $employeeIds) {
+                    if (!empty($userIds)) {
+                        $q->orWhereIn('user_id', $userIds);
+                    }
+                    if (!empty($employeeIds)) {
+                        $q->orWhereIn('employee_id', $employeeIds);
+                    }
+                })
                 ->get()
                 ->groupBy('user_id');
 
@@ -1658,7 +1764,7 @@ class AttendanceController extends Controller implements HasMiddleware
         $employeeId = $request->input('employee_id');
 
         $this->executeProcessRules($date, $employeeId);
-        
+
         return response()->json(['status' => 'success', 'message' => 'Rules processed successfully']);
     }
 
@@ -1738,7 +1844,7 @@ class AttendanceController extends Controller implements HasMiddleware
                 if ($targetLeaveType) {
                     $leaveQuery = \App\Models\Leave::where('from_date', $date)
                         ->where('leave_type_id', $targetLeaveType);
-                    
+
                     if ($empId) {
                         $leaveQuery->where('employee_id', $empId);
                     } else {
@@ -1805,7 +1911,7 @@ class AttendanceController extends Controller implements HasMiddleware
                         }
 
                         $leaveTypeObj = \App\Models\LeaveType::find($targetLeaveType);
-                        
+
                         $balanceQuery = [
                             'leave_type_id' => $targetLeaveType,
                             'year' => date('Y')
