@@ -12,11 +12,9 @@ use Carbon\Carbon;
 use App\Models\Attendance;
 use App\Models\User;
 use App\Models\Geofence;
-use App\Models\OpenLocationMember;
 use App\Models\Leave;
 use App\Models\Holiday;
 use App\Http\Controllers\V1\GeofenceController;
-use App\Services\AttendanceSessionExpiryService;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\ActivityLogTrait;
@@ -27,68 +25,12 @@ class AttendanceController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Attendance Index|Attendance View Team|Attendance View Company', only: ['index', 'show']),
+            new Middleware('permission:Attendance Index', only: ['index', 'show']),
             new Middleware('permission:Attendance Create', only: ['store']),
-            new Middleware('permission:Attendance Update|Attendance Correct', only: ['update', 'clockOut']),
+            new Middleware('permission:Attendance Update', only: ['update', 'clockOut']),
             new Middleware('permission:Attendance Delete', only: ['destroy', 'forceDelete', 'restore']),
-            new Middleware('permission:Attendance Report|Attendance View Company', only: ['report', 'dailyReport', 'weeklyReport', 'monthlyReport']),
+            new Middleware('permission:Attendance Report', only: ['dailyReport', 'weeklyReport', 'monthlyReport']),
         ];
-    }
-
-    /**
-     * Apply active employee filters and department/branch filters to a user query
-     * so attendance reports only include active employees and match selected filters.
-     */
-    private function applyReportFilters($query, Request $request)
-    {
-        // Only include active users with active employees (excludes inactive and terminated employees)
-        $query->where('is_active', true)
-            ->whereHas('employee', function ($q) {
-                $q->where('is_active', true)
-                    ->where(function ($sub) {
-                        $sub->where('employment_status', 'active')
-                            ->orWhereNull('employment_status');
-                    });
-            });
-
-        if ($request->filled('department_id')) {
-            $query->whereHas('employee', function ($q) use ($request) {
-                $q->where('department_id', $request->department_id);
-            });
-        }
-
-        if ($request->filled('branch_id')) {
-            $query->whereHas('employee', function ($q) use ($request) {
-                $q->where('branch_id', $request->branch_id);
-            });
-        }
-
-        if ($request->filled('employee_id')) {
-            $query->whereHas('employee', function ($q) use ($request) {
-                $q->where('id', $request->employee_id);
-            });
-        }
-
-        if ($request->filled('user_id')) {
-            $query->where('id', $request->user_id);
-        }
-
-        if ($request->filled('employee_ids')) {
-            $employeeIds = collect(explode(',', $request->employee_ids))
-                ->map(fn ($value) => (int) trim($value))
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            if (!empty($employeeIds)) {
-                $query->whereHas('employee', function ($q) use ($employeeIds) {
-                    $q->whereIn('id', $employeeIds);
-                });
-            }
-        }
-
-        return $query;
     }
 
     /**
@@ -114,10 +56,6 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->byEmployee($request->employee_id);
             }
 
-            if ($request->filled('user_id')) {
-                $query->byUser($request->user_id);
-            }
-
             if ($request->has('date')) {
                 $query->byDate($request->date);
             }
@@ -126,39 +64,11 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->dateRange($request->from_date, $request->to_date);
             }
 
-            if ($request->filled('department_id')) {
-                $query->whereHas('employee', function ($q) use ($request) {
-                    $q->where('department_id', $request->department_id);
-                });
-            }
-
-            if ($request->filled('branch_id')) {
-                $query->whereHas('employee', function ($q) use ($request) {
-                    $q->where('branch_id', $request->branch_id);
-                });
-            }
-
-            if ($request->filled('employee_ids')) {
-                $employeeIds = collect(explode(',', $request->employee_ids))
-                    ->map(fn ($value) => (int) trim($value))
-                    ->filter()
-                    ->unique()
-                    ->values()
-                    ->all();
-
-                if (!empty($employeeIds)) {
-                    $query->whereIn('employee_id', $employeeIds);
-                }
-            }
-
-            $attendances = $query->with(['employee.department', 'employee.branch', 'user.employee'])
-                ->orderByDesc('date')
-                ->orderByDesc('id')
-                ->paginate($perPage);
+            $attendances = $query->with(['employee', 'user.employee'])->paginate($perPage);
 
             Log::info('Attendances index accessed', [
                 'user_id' => Auth::id(),
-                'filters' => $request->only(['search', 'employee_id', 'date', 'from_date', 'to_date', 'department_id', 'branch_id', 'employee_ids', 'per_page']),
+                'filters' => $request->only(['search', 'employee_id', 'date', 'from_date', 'to_date', 'per_page']),
                 'count' => $attendances->count()
             ]);
 
@@ -220,214 +130,51 @@ class AttendanceController extends Controller implements HasMiddleware
                 }
             }
 
-            // A correction request (submitted with a reason) creates/updates a record
-            // for a past or missed session and is subject to manager approval, so the
-            // clock-in geofence must not be enforced for it.
-            $isCorrectionRequest = $request->filled('reason');
-
-            if ($isCorrectionRequest) {
-                $authUser = Auth::user();
-                $authEmployee = $authUser?->employee;
-
-                $targetUserId = $data['user_id'] ?? $authUser?->id;
-                $targetUser = $targetUserId ? User::with('employee')->find($targetUserId) : null;
-
-                if (!$authEmployee || !$authEmployee->reporting_manager_id) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'No reporting manager assigned. Please contact your administrator.',
-                    ], 403);
-                }
-
-                // Block a new request while one is still pending for the same date.
-                $hasPendingRequest = \App\Models\AttendanceUpdateRequest::where('user_id', $targetUserId)
-                    ->where('status', 'pending')
-                    ->whereHas('attendance', function ($q) use ($data) {
-                        $q->whereDate('date', $data['date']);
-                    })
-                    ->exists();
-
-                if ($hasPendingRequest) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'You already have a pending attendance update request for this date. Please wait for it to be reviewed.',
-                    ], 409);
-                }
-
-                $date = $data['date'] ?? now()->toDateString();
-
-                // A correction is only allowed when there is no existing record for the
-                // date, otherwise it is an update of an existing record. An unpopulated
-                // placeholder row (created by a previous correction that was rejected) may
-                // be reused so the employee can resubmit for the same date.
-                $existing = Attendance::where('user_id', $targetUserId)
-                    ->whereDate('date', $date)
-                    ->first();
-
-                $isReusablePlaceholder = $existing
-                    && !$existing->clock_in
-                    && !$existing->clock_out;
-
-                if ($existing && !$isReusablePlaceholder) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'An attendance record already exists for this date. Please use the update option.',
-                    ], 409);
-                }
-
-                $requestedClockIn = null;
-                $requestedClockOut = null;
-
-                if (isset($data['clock_in']) && $data['clock_in']) {
-                    $clockInTime = $data['clock_in'];
-                    $requestedClockIn = (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false)
-                        ? Carbon::parse($date . ' ' . $clockInTime)
-                        : Carbon::parse($clockInTime);
-                }
-
-                if (isset($data['clock_out']) && $data['clock_out']) {
-                    $clockOutTime = $data['clock_out'];
-                    $requestedClockOut = (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false)
-                        ? Carbon::parse($date . ' ' . $clockOutTime)
-                        : Carbon::parse($clockOutTime);
-                }
-
-                // Reuse the placeholder record the manager will approve against, or create one.
-                $attendance = $isReusablePlaceholder
-                    ? $existing
-                    : Attendance::create([
-                        'user_id' => $targetUserId,
-                        'employee_id' => $data['employee_id'] ?? $targetUser?->employee?->id,
-                        'date' => $date,
-                        'status' => 'absent',
-                    ]);
-
-                $updateRequest = \App\Models\AttendanceUpdateRequest::create([
-                    'attendance_id' => $attendance->id,
-                    'user_id' => $targetUserId,
-                    'employee_id' => $authEmployee->id,
-                    'manager_id' => $authEmployee->reporting_manager_id,
-                    'requested_clock_in' => $requestedClockIn,
-                    'requested_clock_out' => $requestedClockOut,
-                    'reason' => $request->input('reason', 'Attendance correction requested by employee.'),
-                    'status' => 'pending',
-                ]);
-
-                $this->logActivity('CREATE', 'AttendanceUpdateRequest', "Requested attendance correction for date {$date} (Request ID: {$updateRequest->id})", $data);
-
-                Log::info('Attendance correction requested', [
-                    'user_id' => $targetUserId,
-                    'attendance_id' => $attendance->id,
-                    'request_id' => $updateRequest->id
-                ]);
-
-                // Send email notification to the reporting manager
-                try {
-                    $updateRequest->load('manager');
-                    $manager = $updateRequest->manager;
-                    if ($manager) {
-                        $managerEmail = $manager->email;
-                        if (empty($managerEmail)) {
-                            $managerUser = \App\Models\User::where('employee_id', $manager->id)->first();
-                            if ($managerUser) {
-                                $managerEmail = $managerUser->email;
-                            }
-                        }
-
-                        if (!empty($managerEmail)) {
-                            $employeeName = $authEmployee->full_name ?? ($authEmployee->f_name . ' ' . $authEmployee->l_name);
-                            $emailData = [
-                                'manager_name' => $manager->full_name ?? ($manager->f_name . ' ' . $manager->l_name),
-                                'employee_name' => $employeeName,
-                                'date' => $date,
-                                'requested_clock_in' => $requestedClockIn ? $requestedClockIn->toTimeString() : null,
-                                'requested_clock_out' => $requestedClockOut ? $requestedClockOut->toTimeString() : null,
-                                'reason' => $updateRequest->reason,
-                                'action_url' => rtrim(config('app.frontend_url'), '/') . '/attendances/update-requests'
-                            ];
-
-                            \Illuminate\Support\Facades\Mail::to($managerEmail)->send(new \App\Mail\AttendanceUpdateRequestMail($emailData));
-                            Log::info('Attendance correction request email sent to reporting manager', [
-                                'manager_id' => $manager->id,
-                                'manager_email' => $managerEmail,
-                                'request_id' => $updateRequest->id
-                            ]);
-                        } else {
-                            Log::warning('Could not find email address for reporting manager', [
-                                'manager_id' => $manager->id,
-                                'request_id' => $updateRequest->id
-                            ]);
-                        }
-                    }
-                } catch (\Throwable $emailError) {
-                    Log::error('Failed to send attendance correction request email to manager', [
-                        'error' => $emailError->getMessage(),
-                        'request_id' => $updateRequest->id
-                    ]);
-                }
-
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Attendance correction request submitted for manager approval',
-                    'data' => $updateRequest->load('manager')
-                ], 202);
-            }
-
             // Geofence / allowed-location check for clock-in
-            if (isset($data['clock_in']) && !isset($data['clock_out']) && !$isCorrectionRequest) {
+            if (isset($data['clock_in']) && !isset($data['clock_out'])) {
                 $latitude = $request->input('latitude');
                 $longitude = $request->input('longitude');
 
-                $userForCheck = isset($user) ? $user : User::find($data['user_id']);
-                $isOpenLocation = $userForCheck?->hasOpenLocationAccess() ?? false;
+                if ($latitude === null || $longitude === null) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Your location could not be verified. Please enable location services to clock in.',
+                    ], 403);
+                }
 
-                // Open-location members may clock in from anywhere (location optional).
-                if ($isOpenLocation) {
-                    if ($latitude !== null && $longitude !== null) {
+                $userForCheck = isset($user) ? $user : User::find($data['user_id']);
+
+                $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+                if (!$allowedLocations || $allowedLocations->isEmpty()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'No allowed locations assigned. Please contact your administrator.',
+                    ], 403);
+                }
+
+                foreach ($allowedLocations as $loc) {
+                    $gf = $loc->geofence;
+                    if (!$gf || !$gf->is_active) continue;
+                    $dist = GeofenceController::haversineDistance(
+                        (float) $latitude,
+                        (float) $longitude,
+                        (float) $gf->latitude,
+                        (float) $gf->longitude
+                    );
+                    if ($dist <= (float) $gf->radius_meters) {
                         $data['in_latitude'] = $latitude;
                         $data['in_longitude'] = $longitude;
+                        $data['in_geofence_name'] = $gf->name;
+                        break;
                     }
-                    $data['in_geofence_name'] = OpenLocationMember::LABEL;
-                } else {
-                    if ($latitude === null || $longitude === null) {
-                        return response()->json([
-                            'status' => 'error',
-                            'message' => 'Your location could not be verified. Please enable location services to clock in.',
-                        ], 403);
-                    }
+                }
 
-                    $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
-
-                    if (!$allowedLocations || $allowedLocations->isEmpty()) {
-                        return response()->json([
-                            'status' => 'error',
-                            'message' => 'No allowed locations assigned. Please contact your administrator.',
-                        ], 403);
-                    }
-
-                    foreach ($allowedLocations as $loc) {
-                        $gf = $loc->geofence;
-                        if (!$gf || !$gf->is_active) continue;
-                        $dist = GeofenceController::haversineDistance(
-                            (float) $latitude,
-                            (float) $longitude,
-                            (float) $gf->latitude,
-                            (float) $gf->longitude
-                        );
-                        if ($dist <= (float) $gf->radius_meters) {
-                            $data['in_latitude'] = $latitude;
-                            $data['in_longitude'] = $longitude;
-                            $data['in_geofence_name'] = $gf->name;
-                            break;
-                        }
-                    }
-
-                    if (!isset($data['in_geofence_name'])) {
-                        return response()->json([
-                            'status' => 'error',
-                            'message' => 'You are outside your allowed locations. Please move to an approved area.',
-                        ], 403);
-                    }
+                if (!isset($data['in_geofence_name'])) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'You are outside your allowed locations. Please move to an approved area.',
+                    ], 403);
                 }
             }
 
@@ -444,7 +191,7 @@ class AttendanceController extends Controller implements HasMiddleware
                     $data['exceeds_grace_period'] = 0;
                 } else {
                     $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
-
+                    
                     if ($data['clock_in'] > $officeStartDateTime) {
                         $lateMinutes = (int) $officeStartDateTime->diffInMinutes($data['clock_in']);
                         $data['late_minutes'] = $lateMinutes;
@@ -473,14 +220,6 @@ class AttendanceController extends Controller implements HasMiddleware
                 $data['status'] = 'present';
             } elseif (isset($data['clock_in'])) {
                 $data['status'] = 'present';
-            }
-
-            // Close any session left open on a previous day so this clock-in starts a fresh session
-            if (isset($data['clock_in'])) {
-                app(AttendanceSessionExpiryService::class)->expireSessionsBefore(
-                    (int) $data['user_id'],
-                    $data['date']
-                );
             }
 
             $attendance = Attendance::create($data);
@@ -583,21 +322,6 @@ class AttendanceController extends Controller implements HasMiddleware
 
             // If not a Super Admin, and has a reporting manager, create a request instead
             if (!$user->hasRole('Super Admin') && $employee && $employee->reporting_manager_id) {
-                // Block a new request while one is still pending for the same date.
-                $hasPendingRequest = \App\Models\AttendanceUpdateRequest::where('user_id', $user->id)
-                    ->where('status', 'pending')
-                    ->whereHas('attendance', function ($q) use ($attendance) {
-                        $q->whereDate('date', $attendance->date);
-                    })
-                    ->exists();
-
-                if ($hasPendingRequest) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'You already have a pending attendance update request for this date. Please wait for it to be reviewed.',
-                    ], 409);
-                }
-
                 // Prepare the requested times
                 $requestedClockIn = null;
                 $requestedClockOut = null;
@@ -745,7 +469,7 @@ class AttendanceController extends Controller implements HasMiddleware
             if ($testClockIn) {
                 $dateToUse = $data['date'] ?? ($attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date);
                 $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
-
+                
                 if ($testClockIn > $officeStartDateTime) {
                     $lateMinutes = (int) $officeStartDateTime->diffInMinutes($testClockIn);
                     $data['late_minutes'] = $lateMinutes;
@@ -830,14 +554,12 @@ class AttendanceController extends Controller implements HasMiddleware
                 $attendance = Attendance::where('id', $recordId)
                     ->where('user_id', $user->id)
                     ->whereNull('clock_out')
-                    ->whereNull('session_expired_at')
                     ->first();
             }
             if (!$attendance) {
                 $attendance = Attendance::where('user_id', $user->id)
                     ->whereDate('date', now()->toDateString())
                     ->whereNull('clock_out')
-                    ->whereNull('session_expired_at')
                     ->latest()
                     ->first();
             }
@@ -863,53 +585,44 @@ class AttendanceController extends Controller implements HasMiddleware
             $latitude = $request->input('latitude');
             $longitude = $request->input('longitude');
 
-            // Open-location members may clock out from anywhere (location optional).
-            if ($user->hasOpenLocationAccess()) {
-                if ($latitude !== null && $longitude !== null) {
+            if ($latitude === null || $longitude === null) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Your location could not be verified. Please enable location services to clock out.',
+                ], 403);
+            }
+
+            $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+            if ($allowedLocations->isEmpty()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No allowed locations assigned. Please contact your administrator.',
+                ], 403);
+            }
+
+            foreach ($allowedLocations as $loc) {
+                $gf = $loc->geofence;
+                if (!$gf || !$gf->is_active) continue;
+                $dist = GeofenceController::haversineDistance(
+                    (float) $latitude,
+                    (float) $longitude,
+                    (float) $gf->latitude,
+                    (float) $gf->longitude
+                );
+                if ($dist <= (float) $gf->radius_meters) {
                     $attendance->out_latitude = $latitude;
                     $attendance->out_longitude = $longitude;
+                    $attendance->out_geofence_name = $gf->name;
+                    break;
                 }
-                $attendance->out_geofence_name = OpenLocationMember::LABEL;
-            } else {
-                if ($latitude === null || $longitude === null) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'Your location could not be verified. Please enable location services to clock out.',
-                    ], 403);
-                }
+            }
 
-                $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
-
-                if ($allowedLocations->isEmpty()) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'No allowed locations assigned. Please contact your administrator.',
-                    ], 403);
-                }
-
-                foreach ($allowedLocations as $loc) {
-                    $gf = $loc->geofence;
-                    if (!$gf || !$gf->is_active) continue;
-                    $dist = GeofenceController::haversineDistance(
-                        (float) $latitude,
-                        (float) $longitude,
-                        (float) $gf->latitude,
-                        (float) $gf->longitude
-                    );
-                    if ($dist <= (float) $gf->radius_meters) {
-                        $attendance->out_latitude = $latitude;
-                        $attendance->out_longitude = $longitude;
-                        $attendance->out_geofence_name = $gf->name;
-                        break;
-                    }
-                }
-
-                if (!$attendance->out_geofence_name) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
-                    ], 403);
-                }
+            if (!$attendance->out_geofence_name) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
+                ], 403);
             }
 
             // Capture out IP Address
@@ -918,20 +631,7 @@ class AttendanceController extends Controller implements HasMiddleware
             }
 
             if ($attendance->clock_in) {
-                $clockInTime = $attendance->clock_in instanceof Carbon
-                    ? $attendance->clock_in->format('H:i:s')
-                    : substr((string) $attendance->clock_in, 0, 8);
-
-                // Build both ends on the record's own date: the time-only columns otherwise
-                // resolve to today, which breaks clock-outs for previous days.
-                $start = Carbon::parse($date.' '.$clockInTime);
-                $end = $clockOutDateTime;
-
-                if ($end < $start) {
-                    $end->addDay();
-                }
-
-                $attendance->working_hours = round($start->diffInMinutes($end) / 60, 2);
+                $attendance->working_hours = Attendance::calculateWorkingHours($attendance->clock_in, $clockOutInput);
                 $attendance->status = 'present';
             }
 
@@ -1101,14 +801,6 @@ class AttendanceController extends Controller implements HasMiddleware
     }
 
     /**
-     * Attendance Report (defaults to daily report)
-     */
-    public function report(Request $request)
-    {
-        return $this->dailyReport($request);
-    }
-
-    /**
      * Daily Attendance Report
      */
     public function dailyReport(Request $request)
@@ -1124,21 +816,11 @@ class AttendanceController extends Controller implements HasMiddleware
                 ], 422);
             }
 
-            // Get all users with their employees (filtered by department/branch)
-            $users = $this->applyReportFilters(User::with('employee.department'), $request)->get();
-            $userIds = $users->pluck('id')->filter()->all();
-            $employeeIds = $users->pluck('employee.id')->filter()->all();
+            // Get all users with their employees
+            $users = User::with('employee.department')->get();
 
             // Get attendance for the specific date
             $attendances = Attendance::whereDate('date', $date)
-                ->where(function ($q) use ($userIds, $employeeIds) {
-                    if (!empty($userIds)) {
-                        $q->orWhereIn('user_id', $userIds);
-                    }
-                    if (!empty($employeeIds)) {
-                        $q->orWhereIn('employee_id', $employeeIds);
-                    }
-                })
                 ->get()
                 ->keyBy('user_id');
 
@@ -1286,15 +968,8 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get the date from request
             $date = $request->input('date', Carbon::today()->toDateString());
 
-            // An explicit range wins, so the report matches the period shown in
-            // the attendance log.
-            if ($request->filled('from_date') && $request->filled('to_date')) {
-                $startOfWeek = Carbon::parse($request->input('from_date'))->startOfDay()->toDateString();
-                $endOfWeek = Carbon::parse($request->input('to_date'))->endOfDay()->toDateString();
-            } else {
-                $startOfWeek = Carbon::parse($date)->startOfWeek(Carbon::MONDAY)->toDateString();
-                $endOfWeek = Carbon::parse($date)->endOfWeek(Carbon::SUNDAY)->toDateString();
-            }
+            $startOfWeek = Carbon::parse($date)->startOfWeek(Carbon::MONDAY)->toDateString();
+            $endOfWeek = Carbon::parse($date)->endOfWeek(Carbon::SUNDAY)->toDateString();
 
             Log::info('Weekly report parameters', [
                 'date' => $date,
@@ -1302,10 +977,8 @@ class AttendanceController extends Controller implements HasMiddleware
                 'end_of_week' => $endOfWeek
             ]);
 
-            // Get all users (filtered by department/branch)
-            $users = $this->applyReportFilters(User::with('employee.department'), $request)->get();
-            $userIds = $users->pluck('id')->filter()->all();
-            $employeeIds = $users->pluck('employee.id')->filter()->all();
+            // Get all users
+            $users = User::with('employee.department')->get();
 
             // Get all dates in the week
             $weekDates = $this->getDateRange($startOfWeek, $endOfWeek);
@@ -1313,14 +986,6 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get all attendance for the week
             $attendances = Attendance::whereDate('date', '>=', $startOfWeek)
                 ->whereDate('date', '<=', $endOfWeek)
-                ->where(function ($q) use ($userIds, $employeeIds) {
-                    if (!empty($userIds)) {
-                        $q->orWhereIn('user_id', $userIds);
-                    }
-                    if (!empty($employeeIds)) {
-                        $q->orWhereIn('employee_id', $employeeIds);
-                    }
-                })
                 ->get()
                 ->groupBy('user_id');
 
@@ -1499,11 +1164,6 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get the month from request or use provided date
             $date = $request->input('date', Carbon::now()->toDateString());
 
-            // A "YYYY-MM" month value is also accepted
-            if ($request->filled('month')) {
-                $date = $request->input('month') . '-01';
-            }
-
             // Parse the date to get year and month
             $parsedDate = Carbon::parse($date);
             $year = $parsedDate->year;
@@ -1520,10 +1180,8 @@ class AttendanceController extends Controller implements HasMiddleware
                 'end_of_month' => $endOfMonth
             ]);
 
-            // Get all users (filtered by department/branch)
-            $users = $this->applyReportFilters(User::with('employee.department'), $request)->get();
-            $userIds = $users->pluck('id')->filter()->all();
-            $employeeIds = $users->pluck('employee.id')->filter()->all();
+            // Get all users
+            $users = User::with('employee.department')->get();
 
             // Get all dates in the month
             $monthDates = $this->getDateRange($startOfMonth, $endOfMonth);
@@ -1531,14 +1189,6 @@ class AttendanceController extends Controller implements HasMiddleware
             // Get all attendance for the month
             $attendances = Attendance::whereDate('date', '>=', $startOfMonth)
                 ->whereDate('date', '<=', $endOfMonth)
-                ->where(function ($q) use ($userIds, $employeeIds) {
-                    if (!empty($userIds)) {
-                        $q->orWhereIn('user_id', $userIds);
-                    }
-                    if (!empty($employeeIds)) {
-                        $q->orWhereIn('employee_id', $employeeIds);
-                    }
-                })
                 ->get()
                 ->groupBy('user_id');
 
@@ -1764,7 +1414,7 @@ class AttendanceController extends Controller implements HasMiddleware
         $employeeId = $request->input('employee_id');
 
         $this->executeProcessRules($date, $employeeId);
-
+        
         return response()->json(['status' => 'success', 'message' => 'Rules processed successfully']);
     }
 
@@ -1844,7 +1494,7 @@ class AttendanceController extends Controller implements HasMiddleware
                 if ($targetLeaveType) {
                     $leaveQuery = \App\Models\Leave::where('from_date', $date)
                         ->where('leave_type_id', $targetLeaveType);
-
+                    
                     if ($empId) {
                         $leaveQuery->where('employee_id', $empId);
                     } else {
@@ -1911,7 +1561,7 @@ class AttendanceController extends Controller implements HasMiddleware
                         }
 
                         $leaveTypeObj = \App\Models\LeaveType::find($targetLeaveType);
-
+                        
                         $balanceQuery = [
                             'leave_type_id' => $targetLeaveType,
                             'year' => date('Y')
@@ -2081,7 +1731,14 @@ class AttendanceController extends Controller implements HasMiddleware
                 if ($clockOut && strpos($clockOut, ' ') !== false) {
                     $clockOut = Carbon::parse($clockOut)->format('H:i:s');
                 }
-                $workingHours = $attendance->working_hours ?? 0;
+                $workingHours = (float) ($attendance->working_hours ?? 0);
+                if ($workingHours <= 0 && $clockIn && $clockOut) {
+                    $calcHours = Attendance::calculateWorkingHours($clockIn, $clockOut);
+                    if ($calcHours > 0) {
+                        $workingHours = $calcHours;
+                    }
+                }
+                $workingHours = max(0, $workingHours);
 
                 switch ($rawStatus) {
                     case 'present':

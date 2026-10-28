@@ -33,7 +33,6 @@ class Attendance extends Model
         'converted_at',
         'converted_leave_type',
         'grace_period_applied',
-        'session_expired_at',
     ];
 
     protected $casts = [
@@ -45,7 +44,6 @@ class Attendance extends Model
         'out_latitude' => 'decimal:8',
         'out_longitude' => 'decimal:8',
         'working_hours' => 'decimal:2',
-        'session_expired_at' => 'datetime',
     ];
 
     // Relationships
@@ -69,30 +67,43 @@ class Attendance extends Model
         }
 
         try {
-            // Handle both time strings and datetime strings
-            $start = $clock_in;
-            $end = $clock_out;
+            // Helper to reliably extract H:i:s regardless of whether input is Carbon, datetime string, or time string
+            $extractTime = function ($val): ?string {
+                if (!$val) return null;
+                if ($val instanceof Carbon || $val instanceof \DateTimeInterface) {
+                    return $val->format('H:i:s');
+                }
+                $str = trim((string) $val);
+                if (strpos($str, ' ') !== false) {
+                    $parts = explode(' ', $str);
+                    return end($parts);
+                }
+                if (strpos($str, 'T') !== false) {
+                    $parts = explode('T', $str);
+                    return end($parts);
+                }
+                return $str;
+            };
 
-            if (is_string($clock_in) && strlen($clock_in) <= 8) {
-                // It's just a time string
-                $start = Carbon::parse('2000-01-01 ' . $clock_in);
-            } else {
-                $start = Carbon::parse($clock_in);
+            $timeIn = $extractTime($clock_in);
+            $timeOut = $extractTime($clock_out);
+
+            if (!$timeIn || !$timeOut) {
+                return null;
             }
 
-            if (is_string($clock_out) && strlen($clock_out) <= 8) {
-                $end = Carbon::parse('2000-01-01 ' . $clock_out);
-            } else {
-                $end = Carbon::parse($clock_out);
-            }
+            // Always anchor to the exact same reference date to prevent multi-day jumps or negative offsets
+            $start = Carbon::parse('2000-01-01 ' . $timeIn);
+            $end = Carbon::parse('2000-01-01 ' . $timeOut);
 
-            // If end time is earlier than start time, assume it's the next day
+            // If end time is earlier than start time, assume it's an overnight shift (e.g. 22:00 to 06:00)
             if ($end < $start) {
                 $end->addDay();
             }
 
-            $hours = $start->diffInMinutes($end) / 60;
-            return round($hours, 2);
+            $diffMinutes = $start->diffInMinutes($end);
+            $hours = $diffMinutes / 60;
+            return round(max(0, $hours), 2);
         } catch (\Exception $e) {
             \Log::error('Error calculating working hours', [
                 'clock_in' => $clock_in,
@@ -166,17 +177,6 @@ class Attendance extends Model
 
     public function scopeActive($query)
     {
-        return $query->whereNull('clock_out')->whereNull('session_expired_at');
-    }
-
-    /**
-     * A session is open when the employee has clocked in but has neither
-     * clocked out nor had the session closed by the expiry process.
-     */
-    public function isSessionOpen(): bool
-    {
-        return $this->clock_in !== null
-            && $this->clock_out === null
-            && $this->session_expired_at === null;
+        return $query->whereNull('clock_out');
     }
 }
