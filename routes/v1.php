@@ -1,51 +1,51 @@
 <?php
 
-use App\Http\Controllers\V1\AuthController;
-use App\Http\Controllers\V1\PermissionController;
-use App\Http\Controllers\V1\RoleController;
-use App\Http\Controllers\V1\UserController;
-use App\Http\Controllers\V1\DepartmentController;
-use App\Http\Controllers\V1\EmployeeController;
-use App\Http\Controllers\V1\ProvinceController;
-use App\Http\Controllers\V1\RegionController;
-use App\Http\Controllers\V1\ZonalController;
-use App\Http\Controllers\V1\BranchController;
-use App\Http\Controllers\V1\DesignationController;
-use App\Http\Controllers\V1\LeaveTypeController;
-use App\Http\Controllers\V1\LeaveController;
-use App\Http\Controllers\V1\LetterController;
-use App\Http\Controllers\V1\AttendanceController;
-use App\Http\Controllers\V1\TableCountController;
-use App\Http\Controllers\V1\FingerprintController;
-use App\Http\Controllers\V1\FingerprintWebhookController;
-use App\Http\Controllers\V1\PayrollController;
-use App\Http\Controllers\V1\PayrollAdminController;
-use App\Http\Controllers\V1\ImportController;
-use App\Http\Controllers\V1\LeaveBalanceController;
-use App\Http\Controllers\V1\HolidayController;
-use App\Http\Controllers\V1\AttendanceUpdateRequestController;
-use App\Http\Controllers\V1\DatabaseController;
 use App\Http\Controllers\V1\ActivityLogController;
-use App\Http\Controllers\V1\PasswordController;
-use App\Http\Controllers\V1\NotificationController;
-use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
 use App\Http\Controllers\V1\Admin\AbsentMarkingController;
-use App\Http\Controllers\V1\GeofenceController;
-use App\Http\Controllers\V1\UserAllowedLocationController;
-use App\Http\Controllers\V1\OpenLocationController;
-use App\Http\Controllers\V1\LoanController;
-use App\Http\Controllers\V1\BankLookupController;
+use App\Http\Controllers\V1\Admin\PasswordChangeRequestController;
+use App\Http\Controllers\V1\AttendanceController;
+use App\Http\Controllers\V1\AttendanceUpdateRequestController;
+use App\Http\Controllers\V1\AuthController;
+use App\Http\Controllers\V1\BackdatedAttendanceController;
 use App\Http\Controllers\V1\BankController;
-use App\Http\Controllers\V1\PurposeCodeController;
+use App\Http\Controllers\V1\BankLookupController;
+use App\Http\Controllers\V1\BranchController;
 use App\Http\Controllers\V1\CusReportController;
+use App\Http\Controllers\V1\DatabaseController;
+use App\Http\Controllers\V1\DepartmentController;
+use App\Http\Controllers\V1\DesignationController;
+use App\Http\Controllers\V1\EmployeeController;
 use App\Http\Controllers\V1\EmployeeSalaryController;
 use App\Http\Controllers\V1\EpfReportController;
 use App\Http\Controllers\V1\EtfReportController;
+use App\Http\Controllers\V1\FingerprintController;
+use App\Http\Controllers\V1\FingerprintWebhookController;
+use App\Http\Controllers\V1\GeofenceController;
+use App\Http\Controllers\V1\HolidayController;
+use App\Http\Controllers\V1\ImportController;
+use App\Http\Controllers\V1\LeaveBalanceController;
+use App\Http\Controllers\V1\LeaveController;
+use App\Http\Controllers\V1\LeaveTypeController;
+use App\Http\Controllers\V1\LetterController;
+use App\Http\Controllers\V1\LoanController;
+use App\Http\Controllers\V1\NotificationController;
+use App\Http\Controllers\V1\OpenLocationController;
+use App\Http\Controllers\V1\PasswordController;
+use App\Http\Controllers\V1\PayrollAdminController;
+use App\Http\Controllers\V1\PayrollController;
 use App\Http\Controllers\V1\PayrollDeductionController;
 use App\Http\Controllers\V1\PayrollSettingsController;
+use App\Http\Controllers\V1\PermissionController;
+use App\Http\Controllers\V1\ProvinceController;
+use App\Http\Controllers\V1\PurposeCodeController;
+use App\Http\Controllers\V1\RegionController;
+use App\Http\Controllers\V1\RoleController;
+use App\Http\Controllers\V1\TableCountController;
+use App\Http\Controllers\V1\UserAllowedLocationController;
+use App\Http\Controllers\V1\UserController;
 use App\Http\Controllers\V1\WeekendHolidayWorkController;
+use App\Http\Controllers\V1\ZonalController;
 use Illuminate\Support\Facades\Route;
-
 
 /* public routes */
 
@@ -60,6 +60,7 @@ Route::prefix('v1')->group(function () {
     // Forgot password endpoints (unauthenticated)
     Route::post('password/forgot', [PasswordController::class, 'forgotPassword']);
     Route::post('password/reset-with-otp', [PasswordController::class, 'resetForgotPassword']);
+
 });
 
 /* protected routes */
@@ -67,7 +68,6 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('me', [AuthController::class, 'me']);
-
 
     // password change requests
     Route::post('password/request-change', [PasswordController::class, 'requestChange']);
@@ -118,7 +118,6 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::apiResource('leaves', LeaveController::class);
 
     Route::get('leave-balances', [LeaveBalanceController::class, 'index']);
-
 
     Route::get('letters/list', [LetterController::class, 'getLetterList']);
     Route::apiResource('letters', LetterController::class);
@@ -247,7 +246,6 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::delete('/members/{user}', [OpenLocationController::class, 'revoke']);
     });
 
-
     // Employee routes
 
     Route::get('/payroll', [PayrollController::class, 'index']);
@@ -258,7 +256,6 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::post('/payroll/request-by-period', [PayrollController::class, 'requestPayslipByPeriod']);
     Route::get('/payroll/status-by-period', [PayrollController::class, 'getRequestStatusByPeriod']);
     Route::get('/payroll/{employee_id}/metrics', [PayrollController::class, 'getPayrollMetrics']);
-
 
     // HR Admin routes
     Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
@@ -318,7 +315,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
         Route::post('/attendances/mark-absent', [AbsentMarkingController::class, 'markAbsent']);
     });
 
-    //Bulk Import routes
+    // Bulk Import routes
     Route::get('imports/tables/list', [ImportController::class, 'listTables']);
     Route::get('imports', [ImportController::class, 'index']);
     Route::post('imports/{table}', [ImportController::class, 'import']);
@@ -384,4 +381,11 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // Purpose code management (CUS salary upload reference data)
     Route::patch('purpose-codes/{purpose_code}/toggle-status', [PurposeCodeController::class, 'toggleStatus']);
     Route::apiResource('purpose-codes', PurposeCodeController::class);
+
+    // Backdated attendance (public — no auth) for recording missed/past clock-in & clock-out
+    Route::prefix('backdated-attendances')->group(function () {
+        Route::post('clock-in', [BackdatedAttendanceController::class, 'clockIn']);
+        Route::post('clock-out', [BackdatedAttendanceController::class, 'clockOut']);
+        Route::put('edit', [BackdatedAttendanceController::class, 'edit']);
+    });
 });
