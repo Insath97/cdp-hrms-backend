@@ -164,6 +164,11 @@ class Employee extends Model
         return $this->hasMany(EmployeeSalaryDetail::class)->orderByDesc('effective_from');
     }
 
+    public function designationChanges(): HasMany
+    {
+        return $this->hasMany(EmployeeDesignationChange::class)->orderByDesc('effective_date');
+    }
+
     public function activeSalaryDetail()
     {
         return $this->hasOne(EmployeeSalaryDetail::class)

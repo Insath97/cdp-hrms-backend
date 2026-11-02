@@ -56,6 +56,28 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->byEmployee($request->employee_id);
             }
 
+            if ($request->filled('branch_id')) {
+                $branchId = $request->input('branch_id');
+                $query->where(function ($branchQuery) use ($branchId) {
+                    $branchQuery->whereHas('employee', function ($employeeQuery) use ($branchId) {
+                        $employeeQuery->where('branch_id', $branchId);
+                    })->orWhereHas('user.employee', function ($employeeQuery) use ($branchId) {
+                        $employeeQuery->where('branch_id', $branchId);
+                    });
+                });
+            }
+
+            if ($request->filled('department_id')) {
+                $departmentId = $request->input('department_id');
+                $query->where(function ($departmentQuery) use ($departmentId) {
+                    $departmentQuery->whereHas('employee', function ($employeeQuery) use ($departmentId) {
+                        $employeeQuery->where('department_id', $departmentId);
+                    })->orWhereHas('user.employee', function ($employeeQuery) use ($departmentId) {
+                        $employeeQuery->where('department_id', $departmentId);
+                    });
+                });
+            }
+
             if ($request->has('date')) {
                 $query->byDate($request->date);
             }
@@ -64,7 +86,7 @@ class AttendanceController extends Controller implements HasMiddleware
                 $query->dateRange($request->from_date, $request->to_date);
             }
 
-            $attendances = $query->with(['employee', 'user.employee'])->paginate($perPage);
+            $attendances = $query->with(['employee.branch', 'user.employee.branch'])->paginate($perPage);
 
             Log::info('Attendances index accessed', [
                 'user_id' => Auth::id(),
@@ -817,7 +839,7 @@ class AttendanceController extends Controller implements HasMiddleware
             }
 
             // Get all users with their employees
-            $users = User::with('employee.department')->get();
+            $users = $this->reportUsersQuery($request)->get();
 
             // Get attendance for the specific date
             $attendances = Attendance::whereDate('date', $date)
@@ -978,7 +1000,7 @@ class AttendanceController extends Controller implements HasMiddleware
             ]);
 
             // Get all users
-            $users = User::with('employee.department')->get();
+            $users = $this->reportUsersQuery($request)->get();
 
             // Get all dates in the week
             $weekDates = $this->getDateRange($startOfWeek, $endOfWeek);
@@ -1181,7 +1203,7 @@ class AttendanceController extends Controller implements HasMiddleware
             ]);
 
             // Get all users
-            $users = User::with('employee.department')->get();
+            $users = $this->reportUsersQuery($request)->get();
 
             // Get all dates in the month
             $monthDates = $this->getDateRange($startOfMonth, $endOfMonth);
@@ -1390,6 +1412,38 @@ class AttendanceController extends Controller implements HasMiddleware
                 'message' => 'Failed to generate monthly report: ' . $th->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Build the user query used by the daily/weekly/monthly report endpoints.
+     */
+    private function reportUsersQuery(Request $request)
+    {
+        $query = User::with('employee.department')
+            ->whereNotNull('employee_id')
+            ->whereHas('employee', function ($employeeQuery) {
+                $employeeQuery->where('is_active', true);
+            })
+            ->where(function ($typeQuery) {
+                $typeQuery->whereNull('user_type')
+                    ->orWhereNotIn('user_type', ['admin', 'development_admin']);
+            });
+
+        if ($request->filled('branch_id')) {
+            $branchId = $request->input('branch_id');
+            $query->whereHas('employee', function ($employeeQuery) use ($branchId) {
+                $employeeQuery->where('branch_id', $branchId);
+            });
+        }
+
+        if ($request->filled('department_id')) {
+            $departmentId = $request->input('department_id');
+            $query->whereHas('employee', function ($employeeQuery) use ($departmentId) {
+                $employeeQuery->where('department_id', $departmentId);
+            });
+        }
+
+        return $query;
     }
 
     /**

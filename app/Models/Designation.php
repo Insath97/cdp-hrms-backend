@@ -10,6 +10,20 @@ class Designation extends Model
 {
     use HasFactory;
 
+    /**
+     * Seniority order used to classify a designation change as a promotion
+     * or a demotion. Keys are lower-cased level values.
+     */
+    public const LEVEL_RANKS = [
+        'entry' => 1,
+        'mid' => 2,
+        'senior' => 3,
+        'lead' => 4,
+        'executive' => 5,
+        'manager' => 6,
+        'director' => 7,
+    ];
+
     protected $fillable = [
         'name',
         'code',
@@ -50,6 +64,14 @@ class Designation extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /**
+     * Numeric seniority rank for this designation level (0 when unknown).
+     */
+    public function levelRank(): int
+    {
+        return self::LEVEL_RANKS[strtolower((string) $this->level)] ?? 0;
     }
 
     public function scopeActive($query)
