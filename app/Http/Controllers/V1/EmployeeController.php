@@ -397,6 +397,23 @@ class EmployeeController extends Controller implements HasMiddleware
 
             $data = $request->validated();
 
+            // Capture the previous designation state so the change can be
+            // recorded in the designation change history.
+            $previousDesignationId = $employee->designation_id;
+            $previousDesignation = $employee->designation;
+            $previousActiveSalary = $employee->salaryDetail()
+                ->whereNull('effective_to')
+                ->latest('effective_from')
+                ->first();
+            $previousTotal = $previousActiveSalary && ! is_null($previousActiveSalary->total_package)
+                ? (float) $previousActiveSalary->total_package
+                : (float) ($previousDesignation?->basic_salary ?? 0)
+                    + (float) ($previousDesignation?->travel_reimbursement ?? 0)
+                    + (float) ($previousDesignation?->vehicle_rental ?? 0)
+                    + (float) ($previousDesignation?->performance_allowance ?? 0)
+                    + (float) ($previousDesignation?->incentive ?? 0)
+                    + (float) ($previousDesignation?->position_allowance ?? 0);
+
             // Extract user and geofence fields before updating employee
             $geofenceIds = $data['geofence_ids'] ?? null;
             $userType = $data['user_type'] ?? null;
@@ -442,6 +459,70 @@ class EmployeeController extends Controller implements HasMiddleware
                         'effective_from' => $today,
                     ]
                 ));
+            }
+
+            // Track designation changes made through the normal employee edit
+            // form as well, so the change history stays complete.
+            $designationChanged = array_key_exists('designation_id', $data)
+                && (int) $data['designation_id'] !== (int) $previousDesignationId;
+
+            if ($designationChanged) {
+                $newDesignation = \App\Models\Designation::find($data['designation_id']);
+
+                if ($newDesignation) {
+                    // When the edit form did not send new salary values the
+                    // existing salary package is retained, but it should be
+                    // attributed to the new designation.
+                    if (empty($salaryData)) {
+                        $employee->salaryDetail()
+                            ->whereNull('effective_to')
+                            ->update([
+                                'designation_id' => $newDesignation->id,
+                                'designation_name' => $newDesignation->name,
+                            ]);
+                    }
+
+                    $currentActiveSalary = $employee->salaryDetail()
+                        ->whereNull('effective_to')
+                        ->latest('effective_from')
+                        ->first();
+                    $newTotal = $currentActiveSalary && ! is_null($currentActiveSalary->total_package)
+                        ? (float) $currentActiveSalary->total_package
+                        : (float) ($newDesignation->basic_salary ?? 0)
+                            + (float) ($newDesignation->travel_reimbursement ?? 0)
+                            + (float) ($newDesignation->vehicle_rental ?? 0)
+                            + (float) ($newDesignation->performance_allowance ?? 0)
+                            + (float) ($newDesignation->incentive ?? 0)
+                            + (float) ($newDesignation->position_allowance ?? 0);
+
+                    $previousRank = $previousDesignation?->levelRank() ?? 0;
+                    $newRank = $newDesignation->levelRank();
+                    $changeType = $previousRank > 0 && $newRank > 0 && $previousRank !== $newRank
+                        ? ($newRank > $previousRank ? 'promotion' : 'demotion')
+                        : ($newTotal > $previousTotal ? 'promotion' : ($newTotal < $previousTotal ? 'demotion' : 'lateral'));
+
+                    $changeAmount = round($newTotal - $previousTotal, 2);
+
+                    \App\Models\EmployeeDesignationChange::create([
+                        'employee_id' => $employee->id,
+                        'previous_designation_id' => $previousDesignation?->id,
+                        'previous_designation_name' => $previousDesignation?->name,
+                        'new_designation_id' => $newDesignation->id,
+                        'new_designation_name' => $newDesignation->name,
+                        'change_type' => $changeType,
+                        'effective_date' => \Carbon\Carbon::today()->toDateString(),
+                        'previous_total_package' => $previousTotal,
+                        'new_total_package' => $newTotal,
+                        'salary_change_amount' => $changeAmount,
+                        'salary_change_percentage' => $previousTotal > 0
+                            ? round(($changeAmount / $previousTotal) * 100, 2)
+                            : null,
+                        'previous_salary_detail_id' => $previousActiveSalary?->id,
+                        'new_salary_detail_id' => $currentActiveSalary?->id,
+                        'reason' => null,
+                        'created_by' => Auth::id(),
+                    ]);
+                }
             }
 
             // Update associated user account & allowed geofences

@@ -16,6 +16,7 @@ use App\Http\Controllers\V1\DepartmentController;
 use App\Http\Controllers\V1\DesignationController;
 use App\Http\Controllers\V1\EmployeeController;
 use App\Http\Controllers\V1\EmployeeSalaryController;
+use App\Http\Controllers\V1\EmployeeDesignationChangeController;
 use App\Http\Controllers\V1\EpfReportController;
 use App\Http\Controllers\V1\EtfReportController;
 use App\Http\Controllers\V1\FingerprintController;
@@ -357,6 +358,10 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     Route::get('employees/{employeeId}/salary/history', [EmployeeSalaryController::class, 'history']);
     Route::put('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'upsert']);
     Route::delete('employees/{employeeId}/salary', [EmployeeSalaryController::class, 'destroy']);
+
+    // Designation / salary changes (promotion, demotion, revision)
+    Route::get('employees/{employeeId}/designation-changes', [EmployeeDesignationChangeController::class, 'index']);
+    Route::post('employees/{employeeId}/designation-change', [EmployeeDesignationChangeController::class, 'store']);
 
     // EPF Report (CSV) - non-RT employees
     Route::get('reports/epf', [EpfReportController::class, 'index']);
