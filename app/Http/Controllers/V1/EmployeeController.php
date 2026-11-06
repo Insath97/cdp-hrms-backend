@@ -24,12 +24,60 @@ class EmployeeController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('permission:Employee Index', only: ['index', 'show', 'getEmployeeList', 'getMetrics']),
+            new Middleware('permission:Attendance View Team', only: ['teamMembers']),
             new Middleware('permission:Employee Create', only: ['store']),
             new Middleware('permission:Employee Update', only: ['update', 'makePermanent', 'terminate', 'extend']),
             new Middleware('permission:Employee Delete', only: ['destroy', 'forceDelete']),
             new Middleware('permission:Employee Restore', only: ['restore']),
             new Middleware('permission:Employee Toggle Status', only: ['toggleStatus']),
         ];
+    }
+
+    /**
+     * Employees in the authenticated user's team. Managers get themselves plus
+     * their direct reports; non-managers get their manager, their peers and
+     * themselves. Used by the Team Attendance screen so users who only hold the
+     * "Attendance View Team" permission can load their team without needing the
+     * broader "Employee Index" permission.
+     */
+    public function teamMembers(Request $request)
+    {
+        try {
+            $user = Auth::user();
+
+            if (!$user || !$user->employee_id) {
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'No team members found',
+                    'data' => ['data' => [], 'total' => 0],
+                ], 200);
+            }
+
+            $teamIds = Employee::teamIdsFor((int) $user->employee_id);
+
+            $employees = Employee::with(['department', 'designation', 'branch'])
+                ->whereIn('id', $teamIds)
+                ->where('is_active', true)
+                ->orderByRaw("(CASE WHEN employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(employee_code, '[0-9]+') AS UNSIGNED) ASC, employee_code ASC")
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Team members retrieved successfully',
+                'data' => ['data' => $employees, 'total' => $employees->count()],
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to retrieve team members', [
+                'user_id' => Auth::id(),
+                'error' => $th->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve team members',
+                'error' => $th->getMessage(),
+            ], 500);
+        }
     }
 
     public function index(Request $request)

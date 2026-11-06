@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use App\Models\Attendance;
+use App\Models\AttendanceUpdateRequest;
+use App\Models\Employee;
 use App\Models\User;
 use App\Models\Geofence;
 use App\Models\Leave;
@@ -25,11 +27,12 @@ class AttendanceController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Attendance Index', only: ['index', 'show']),
+            new Middleware('permission:Attendance Index|Attendance View Team', only: ['index']),
+            new Middleware('permission:Attendance Index', only: ['show']),
             new Middleware('permission:Attendance Create', only: ['store']),
             new Middleware('permission:Attendance Update', only: ['update', 'clockOut']),
             new Middleware('permission:Attendance Delete', only: ['destroy', 'forceDelete', 'restore']),
-            new Middleware('permission:Attendance Report', only: ['dailyReport', 'weeklyReport', 'monthlyReport']),
+            new Middleware('permission:Attendance Report|Attendance View Team', only: ['dailyReport', 'weeklyReport', 'monthlyReport']),
         ];
     }
 
@@ -54,6 +57,23 @@ class AttendanceController extends Controller implements HasMiddleware
 
             if ($request->has('employee_id')) {
                 $query->byEmployee($request->employee_id);
+            }
+
+            if ($request->filled('employee_ids')) {
+                $employeeIds = $this->parseIdList($request->input('employee_ids'));
+                if (empty($employeeIds)) {
+                    $query->whereRaw('1 = 0');
+                } else {
+                    $query->whereIn('employee_id', $employeeIds);
+                }
+            }
+
+            if ($request->filled('user_id')) {
+                $query->where('user_id', $request->input('user_id'));
+            }
+
+            if ($request->filled('manager_id')) {
+                $query->whereIn('employee_id', $this->teamEmployeeIds($request->input('manager_id')));
             }
 
             if ($request->filled('branch_id')) {
@@ -85,6 +105,9 @@ class AttendanceController extends Controller implements HasMiddleware
             if ($request->has('from_date') && $request->has('to_date')) {
                 $query->dateRange($request->from_date, $request->to_date);
             }
+
+            // Users with only the team permission must never see company-wide data.
+            $this->applyTeamScope($query);
 
             $attendances = $query->with(['employee.branch', 'user.employee.branch'])->paginate($perPage);
 
@@ -120,6 +143,15 @@ class AttendanceController extends Controller implements HasMiddleware
     {
         try {
             $data = $request->validated();
+            $authUser = Auth::user();
+
+            $targetUserId = $data['user_id'] ?? $authUser->id;
+            $targetUser = ($targetUserId == $authUser->id) ? $authUser : User::with('employee')->find($targetUserId);
+            $employee = $targetUser?->employee;
+
+            if ($employee && !isset($data['employee_id'])) {
+                $data['employee_id'] = $employee->id;
+            }
 
             // Capture IP addresses
             if (!isset($data['in_ipAddress'])) {
@@ -131,29 +163,46 @@ class AttendanceController extends Controller implements HasMiddleware
 
             Log::info('Store method executed', ['data' => $data]);
 
-            // Ensure clock_in is stored as full datetime
-            if (isset($data['clock_in'])) {
-                $clockInTime = $data['clock_in'];
-                $date = $data['date'] ?? now()->toDateString();
+            $date = $data['date'] ?? now()->toDateString();
+            $dateStr = ($date instanceof Carbon) ? $date->toDateString() : Carbon::parse($date)->toDateString();
+            $data['date'] = $dateStr;
 
-                // If clock_in is just time string, combine with date
-                if (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
-                    $clockInDateTime = Carbon::parse($date . ' ' . $clockInTime);
-                    $data['clock_in'] = $clockInDateTime;
+            // Check if attendance already exists for this user and date
+            $existingAttendance = Attendance::where('user_id', $targetUserId)
+                ->whereDate('date', $dateStr)
+                ->first();
+
+            // Determine if this is a real-time clock-in or an attendance correction/manual entry
+            $isToday = Carbon::parse($dateStr)->isToday();
+            $isClockInOnly = isset($data['clock_in']) && (!isset($data['clock_out']) || empty($data['clock_out']));
+            $isSelf = ($targetUserId == $authUser->id);
+            $hasReason = $request->filled('reason');
+
+            // A real-time clock-in is for today, by self, clock_in only, without correction reason, and not already clocked in
+            $isRealTimeClockIn = $isToday && $isClockInOnly && $isSelf && !$hasReason && (!$existingAttendance || !$existingAttendance->clock_in);
+
+            // If not a Super Admin, and has a reporting manager, and not a real-time clock-in -> route to AttendanceUpdateRequest
+            if (!$authUser->hasRole('Super Admin') && $employee && $employee->reporting_manager_id && !$isRealTimeClockIn) {
+                if (!$existingAttendance) {
+                    $attendance = Attendance::create([
+                        'user_id'       => $targetUserId,
+                        'employee_id'   => $employee->id,
+                        'date'          => $dateStr,
+                        'clock_in'      => null,
+                        'clock_out'     => null,
+                        'working_hours' => 0,
+                        'status'        => 'absent',
+                        'in_ipAddress'  => $data['in_ipAddress'] ?? $request->ip(),
+                    ]);
                 } else {
-                    $data['clock_in'] = Carbon::parse($clockInTime);
+                    $attendance = $existingAttendance;
                 }
+
+                return $this->submitAttendanceUpdateRequest($attendance, $employee, $authUser, $data, $request);
             }
 
-            if (!isset($data['employee_id']) && isset($data['user_id'])) {
-                $user = User::with('employee')->find($data['user_id']);
-                if ($user && $user->employee) {
-                    $data['employee_id'] = $user->employee->id;
-                }
-            }
-
-            // Geofence / allowed-location check for clock-in
-            if (isset($data['clock_in']) && !isset($data['clock_out'])) {
+            // Geofence / allowed-location check only for real-time clock-in
+            if ($isRealTimeClockIn) {
                 $latitude = $request->input('latitude');
                 $longitude = $request->input('longitude');
 
@@ -164,8 +213,7 @@ class AttendanceController extends Controller implements HasMiddleware
                     ], 403);
                 }
 
-                $userForCheck = isset($user) ? $user : User::find($data['user_id']);
-
+                $userForCheck = $targetUser ?? $authUser;
                 $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
 
                 if (!$allowedLocations || $allowedLocations->isEmpty()) {
@@ -200,20 +248,26 @@ class AttendanceController extends Controller implements HasMiddleware
                 }
             }
 
+            // Ensure clock_in is stored as full datetime
+            if (isset($data['clock_in'])) {
+                $clockInTime = $data['clock_in'];
+                if (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
+                    $data['clock_in'] = Carbon::parse($dateStr . ' ' . $clockInTime);
+                } else {
+                    $data['clock_in'] = Carbon::parse($clockInTime);
+                }
+            }
+
             $gracePeriod = \App\Models\AttendanceSetting::getIntSetting('grace_period_minutes', 5);
             $officeStartStr = \App\Models\AttendanceSetting::getSetting('office_start_time', '09:00:00');
             $data['grace_period_applied'] = $gracePeriod;
 
             if (isset($data['clock_in'])) {
-                $dateToUse = $data['date'] ?? now()->toDateString();
-
-                // Check if this date is a holiday
-                if (\App\Models\Holiday::isHoliday($dateToUse)) {
+                if (\App\Models\Holiday::isHoliday($dateStr)) {
                     $data['late_minutes'] = 0;
                     $data['exceeds_grace_period'] = 0;
                 } else {
-                    $officeStartDateTime = Carbon::parse($dateToUse . ' ' . $officeStartStr);
-                    
+                    $officeStartDateTime = Carbon::parse($dateStr . ' ' . $officeStartStr);
                     if ($data['clock_in'] > $officeStartDateTime) {
                         $lateMinutes = (int) $officeStartDateTime->diffInMinutes($data['clock_in']);
                         $data['late_minutes'] = $lateMinutes;
@@ -228,12 +282,8 @@ class AttendanceController extends Controller implements HasMiddleware
             // Calculate working hours if both clock_in and clock_out are provided
             if (isset($data['clock_out']) && $data['clock_out']) {
                 $clockOutTime = $data['clock_out'];
-
-                // If clock_out is just time string, combine with date
                 if (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false) {
-                    $date = $data['date'] ?? now()->toDateString();
-                    $clockOutDateTime = Carbon::parse($date . ' ' . $clockOutTime);
-                    $data['clock_out'] = $clockOutDateTime;
+                    $data['clock_out'] = Carbon::parse($dateStr . ' ' . $clockOutTime);
                 } else {
                     $data['clock_out'] = Carbon::parse($clockOutTime);
                 }
@@ -244,19 +294,29 @@ class AttendanceController extends Controller implements HasMiddleware
                 $data['status'] = 'present';
             }
 
-            $attendance = Attendance::create($data);
+            if ($existingAttendance) {
+                $existingAttendance->update($data);
+                $attendance = $existingAttendance;
+                $action = 'UPDATE';
+                $message = 'Attendance updated successfully';
+                $statusCode = 200;
+            } else {
+                $attendance = Attendance::create($data);
+                $action = 'CREATE';
+                $message = 'Attendance created successfully';
+                $statusCode = 201;
+            }
 
-            $this->logActivity('CREATE', 'Attendance', "Created attendance record on {$attendance->date} for Employee ID: {$attendance->employee_id}", $data);
+            $this->logActivity($action, 'Attendance', "{$action} attendance record on {$attendance->date} for Employee ID: {$attendance->employee_id}", $data);
 
             // Trigger rule processing automatically
-            $dateStr = ($attendance->date instanceof Carbon) ? $attendance->date->toDateString() : Carbon::parse($attendance->date)->toDateString();
             $this->executeProcessRules($dateStr, $attendance->employee_id);
 
-            Log::info('Attendance created', [
-                'user_id' => Auth::id(),
+            Log::info("Attendance {$action}d", [
+                'user_id' => $authUser->id,
                 'attendance_id' => $attendance->id,
                 'employee_id' => $attendance->employee_id,
-                'user_id' => $attendance->user_id,
+                'target_user_id' => $attendance->user_id,
                 'date' => $attendance->date,
                 'clock_in' => $attendance->clock_in,
                 'clock_out' => $attendance->clock_out,
@@ -266,9 +326,9 @@ class AttendanceController extends Controller implements HasMiddleware
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Attendance created successfully',
+                'message' => $message,
                 'data' => $attendance->load('employee', 'user')
-            ], 201);
+            ], $statusCode);
         } catch (\Throwable $th) {
             Log::error('Failed to create attendance', [
                 'user_id' => Auth::id(),
@@ -326,10 +386,37 @@ class AttendanceController extends Controller implements HasMiddleware
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateAttendanceRequest $request, string $id)
+    public function update(UpdateAttendanceRequest $request, ?string $id = null)
     {
         try {
-            $attendance = Attendance::find($id);
+            $data = $request->validated();
+            $user = Auth::user();
+
+            $attendanceId = $id ?? $request->input('id') ?? $request->input('attendance_id');
+            $attendance = $attendanceId ? Attendance::find($attendanceId) : null;
+
+            $targetUserId = $data['user_id'] ?? ($attendance ? $attendance->user_id : $user->id);
+            $targetUser = ($targetUserId == $user->id) ? $user : User::with('employee')->find($targetUserId);
+            $employee = $targetUser?->employee ?? $user->employee;
+
+            if (!$attendance && $request->filled('date')) {
+                $dateStr = Carbon::parse($request->input('date'))->toDateString();
+                $attendance = Attendance::where('user_id', $targetUserId)
+                    ->whereDate('date', $dateStr)
+                    ->first();
+
+                if (!$attendance && $employee) {
+                    $attendance = Attendance::create([
+                        'user_id'       => $targetUserId,
+                        'employee_id'   => $employee->id,
+                        'date'          => $dateStr,
+                        'clock_in'      => null,
+                        'clock_out'     => null,
+                        'working_hours' => 0,
+                        'status'        => 'absent',
+                    ]);
+                }
+            }
 
             if (!$attendance) {
                 return response()->json([
@@ -338,104 +425,9 @@ class AttendanceController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            $data = $request->validated();
-            $user = Auth::user();
-            $employee = $user->employee;
-
             // If not a Super Admin, and has a reporting manager, create a request instead
             if (!$user->hasRole('Super Admin') && $employee && $employee->reporting_manager_id) {
-                // Prepare the requested times
-                $requestedClockIn = null;
-                $requestedClockOut = null;
-                $date = $attendance->date instanceof Carbon ? $attendance->date->toDateString() : $attendance->date;
-
-                if (isset($data['clock_in']) && $data['clock_in']) {
-                    $clockInTime = $data['clock_in'];
-                    if (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
-                        $requestedClockIn = Carbon::parse($date . ' ' . $clockInTime);
-                    } else {
-                        $requestedClockIn = Carbon::parse($clockInTime);
-                    }
-                }
-
-                if (isset($data['clock_out']) && $data['clock_out']) {
-                    $clockOutTime = $data['clock_out'];
-                    if (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false) {
-                        $requestedClockOut = Carbon::parse($date . ' ' . $clockOutTime);
-                    } else {
-                        $requestedClockOut = Carbon::parse($clockOutTime);
-                    }
-                }
-
-                $updateRequest = \App\Models\AttendanceUpdateRequest::create([
-                    'attendance_id' => $attendance->id,
-                    'user_id' => $user->id,
-                    'employee_id' => $employee->id,
-                    'manager_id' => $employee->reporting_manager_id,
-                    'requested_clock_in' => $requestedClockIn,
-                    'requested_clock_out' => $requestedClockOut,
-                    'reason' => $request->input('reason', 'Attendance update requested by employee.'),
-                    'status' => 'pending'
-                ]);
-
-                $this->logActivity('CREATE', 'AttendanceUpdateRequest', "Requested attendance update for date {$attendance->date} (Request ID: {$updateRequest->id})", $data);
-
-                Log::info('Attendance update requested', [
-                    'user_id' => $user->id,
-                    'attendance_id' => $attendance->id,
-                    'request_id' => $updateRequest->id
-                ]);
-
-                // Send email notification to the reporting manager
-                try {
-                    $updateRequest->load('manager');
-                    $manager = $updateRequest->manager;
-                    if ($manager) {
-                        $managerEmail = $manager->email;
-                        if (empty($managerEmail)) {
-                            // Fallback to manager's user account email
-                            $managerUser = \App\Models\User::where('employee_id', $manager->id)->first();
-                            if ($managerUser) {
-                                $managerEmail = $managerUser->email;
-                            }
-                        }
-
-                        if (!empty($managerEmail)) {
-                            $emailData = [
-                                'manager_name' => $manager->full_name ?? ($manager->f_name . ' ' . $manager->l_name),
-                                'employee_name' => $employee->full_name ?? ($employee->f_name . ' ' . $employee->l_name),
-                                'date' => $date,
-                                'requested_clock_in' => $requestedClockIn ? $requestedClockIn->toTimeString() : null,
-                                'requested_clock_out' => $requestedClockOut ? $requestedClockOut->toTimeString() : null,
-                                'reason' => $updateRequest->reason,
-                                'action_url' => rtrim(config('app.frontend_url'), '/') . '/attendances/update-requests'
-                            ];
-
-                            \Illuminate\Support\Facades\Mail::to($managerEmail)->send(new \App\Mail\AttendanceUpdateRequestMail($emailData));
-                            Log::info('Attendance update request email sent successfully to reporting manager', [
-                                'manager_id' => $manager->id,
-                                'manager_email' => $managerEmail,
-                                'request_id' => $updateRequest->id
-                            ]);
-                        } else {
-                            Log::warning('Could not find email address for reporting manager', [
-                                'manager_id' => $manager->id,
-                                'request_id' => $updateRequest->id
-                            ]);
-                        }
-                    }
-                } catch (\Throwable $emailError) {
-                    Log::error('Failed to send attendance update request email to manager', [
-                        'error' => $emailError->getMessage(),
-                        'request_id' => $updateRequest->id
-                    ]);
-                }
-
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Attendance update request submitted for manager approval',
-                    'data' => $updateRequest->load('manager')
-                ], 202);
+                return $this->submitAttendanceUpdateRequest($attendance, $employee, $user, $data, $request);
             }
 
             // Determine if user_id update is requested and whether it's safe
@@ -846,6 +838,8 @@ class AttendanceController extends Controller implements HasMiddleware
                 ->get()
                 ->keyBy('user_id');
 
+            $corrections = $this->attendanceCorrections($attendances->pluck('id'));
+
             $reportData = [];
             $presentCount = 0;
             $absentCount = 0;
@@ -861,9 +855,11 @@ class AttendanceController extends Controller implements HasMiddleware
                 $working_hours = 0;
                 $is_late = false;
                 $is_on_time = false;
+                $correction = null;
 
                 if ($attendance) {
                     $status = $attendance->status ?? 'present';
+                    $correction = $corrections->get($attendance->id);
 
                     // Get raw time values from attributes to avoid casting
                     $clock_in = $attendance->getRawOriginal('clock_in');
@@ -901,7 +897,11 @@ class AttendanceController extends Controller implements HasMiddleware
                         }
                     }
 
-                    $presentCount++;
+                    if ($status === 'absent') {
+                        $absentCount++;
+                    } else {
+                        $presentCount++;
+                    }
                 } else {
                     // Check if today is a holiday
                     if (\App\Models\Holiday::isHoliday($date)) {
@@ -932,6 +932,8 @@ class AttendanceController extends Controller implements HasMiddleware
                         'working_hours' => $working_hours,
                         'is_late' => $is_late,
                         'is_on_time' => $is_on_time,
+                        'correction_reason' => $correction?->reason,
+                        'correction_status' => $correction?->status,
                     ]
                 ];
             }
@@ -1011,6 +1013,8 @@ class AttendanceController extends Controller implements HasMiddleware
                 ->get()
                 ->groupBy('user_id');
 
+            $corrections = $this->attendanceCorrections($attendances->flatten()->pluck('id'));
+
             Log::info('Attendances found for week', [
                 'count' => $attendances->count(),
                 'attendance_ids' => $attendances->flatten()->pluck('id')->toArray(),
@@ -1075,6 +1079,8 @@ class AttendanceController extends Controller implements HasMiddleware
                             'clock_in' => $clockIn,
                             'clock_out' => $clockOut,
                             'working_hours' => $attendance->working_hours,
+                            'correction_reason' => $corrections->get($attendance->id)?->reason,
+                            'correction_status' => $corrections->get($attendance->id)?->status,
                         ];
                     } else {
                         // Check if this date is a holiday
@@ -1091,6 +1097,8 @@ class AttendanceController extends Controller implements HasMiddleware
                             'clock_in' => null,
                             'clock_out' => null,
                             'working_hours' => 0,
+                            'correction_reason' => null,
+                            'correction_status' => null,
                         ];
                     }
                 }
@@ -1214,6 +1222,8 @@ class AttendanceController extends Controller implements HasMiddleware
                 ->get()
                 ->groupBy('user_id');
 
+            $corrections = $this->attendanceCorrections($attendances->flatten()->pluck('id'));
+
             Log::info('Attendances found for month', [
                 'count' => $attendances->count(),
                 'attendance_ids' => $attendances->flatten()->pluck('id')->toArray(),
@@ -1292,6 +1302,8 @@ class AttendanceController extends Controller implements HasMiddleware
                             'clock_in' => $clockIn,
                             'clock_out' => $clockOut,
                             'working_hours' => $attendance->working_hours,
+                            'correction_reason' => $corrections->get($attendance->id)?->reason,
+                            'correction_status' => $corrections->get($attendance->id)?->status,
                         ];
                     } else {
                         // Check if this date is a holiday
@@ -1308,6 +1320,8 @@ class AttendanceController extends Controller implements HasMiddleware
                             'clock_in' => null,
                             'clock_out' => null,
                             'working_hours' => 0,
+                            'correction_reason' => null,
+                            'correction_status' => null,
                         ];
                     }
                 }
@@ -1415,6 +1429,133 @@ class AttendanceController extends Controller implements HasMiddleware
     }
 
     /**
+     * Submit an attendance update request to the reporting manager for approval.
+     */
+    private function submitAttendanceUpdateRequest(Attendance $attendance, $employee, $user, array $data, Request $request)
+    {
+        $dateStr = ($attendance->date instanceof Carbon)
+            ? $attendance->date->toDateString()
+            : Carbon::parse($attendance->date)->toDateString();
+
+        $requestedClockIn = null;
+        $requestedClockOut = null;
+
+        if (isset($data['clock_in']) && $data['clock_in']) {
+            $clockInTime = $data['clock_in'];
+            if ($clockInTime instanceof Carbon) {
+                $requestedClockIn = $clockInTime;
+            } elseif (strlen($clockInTime) <= 8 && strpos($clockInTime, ':') !== false) {
+                $requestedClockIn = Carbon::parse($dateStr . ' ' . $clockInTime);
+            } else {
+                $requestedClockIn = Carbon::parse($clockInTime);
+            }
+        }
+
+        if (isset($data['clock_out']) && $data['clock_out']) {
+            $clockOutTime = $data['clock_out'];
+            if ($clockOutTime instanceof Carbon) {
+                $requestedClockOut = $clockOutTime;
+            } elseif (strlen($clockOutTime) <= 8 && strpos($clockOutTime, ':') !== false) {
+                $requestedClockOut = Carbon::parse($dateStr . ' ' . $clockOutTime);
+            } else {
+                $requestedClockOut = Carbon::parse($clockOutTime);
+            }
+        }
+
+        $updateRequest = AttendanceUpdateRequest::create([
+            'attendance_id'       => $attendance->id,
+            'user_id'             => $user->id,
+            'employee_id'         => $employee->id,
+            'manager_id'          => $employee->reporting_manager_id,
+            'requested_clock_in'  => $requestedClockIn,
+            'requested_clock_out' => $requestedClockOut,
+            'reason'              => $request->input('reason', 'Attendance update requested by employee.'),
+            'status'              => 'pending'
+        ]);
+
+        $this->logActivity('CREATE', 'AttendanceUpdateRequest', "Requested attendance update for date {$dateStr} (Request ID: {$updateRequest->id})", $data);
+
+        Log::info('Attendance update requested', [
+            'user_id'       => $user->id,
+            'attendance_id' => $attendance->id,
+            'request_id'    => $updateRequest->id
+        ]);
+
+        // Send email notification to the reporting manager
+        try {
+            $updateRequest->load('manager');
+            $manager = $updateRequest->manager;
+            if ($manager) {
+                $managerEmail = $manager->email;
+                if (empty($managerEmail)) {
+                    $managerUser = User::where('employee_id', $manager->id)->first();
+                    if ($managerUser) {
+                        $managerEmail = $managerUser->email;
+                    }
+                }
+
+                if (!empty($managerEmail)) {
+                    $emailData = [
+                        'manager_name'        => $manager->full_name ?? ($manager->f_name . ' ' . $manager->l_name),
+                        'employee_name'       => $employee->full_name ?? ($employee->f_name . ' ' . $employee->l_name),
+                        'date'                => $dateStr,
+                        'requested_clock_in'  => $requestedClockIn ? $requestedClockIn->toTimeString() : null,
+                        'requested_clock_out' => $requestedClockOut ? $requestedClockOut->toTimeString() : null,
+                        'reason'              => $updateRequest->reason,
+                        'action_url'          => rtrim(config('app.frontend_url'), '/') . '/attendances/update-requests'
+                    ];
+
+                    \Illuminate\Support\Facades\Mail::to($managerEmail)->send(new \App\Mail\AttendanceUpdateRequestMail($emailData));
+                    Log::info('Attendance update request email sent successfully to reporting manager', [
+                        'manager_id'    => $manager->id,
+                        'manager_email' => $managerEmail,
+                        'request_id'    => $updateRequest->id
+                    ]);
+                } else {
+                    Log::warning('Could not find email address for reporting manager', [
+                        'manager_id' => $manager->id,
+                        'request_id' => $updateRequest->id
+                    ]);
+                }
+            }
+        } catch (\Throwable $emailError) {
+            Log::error('Failed to send attendance update request email to manager', [
+                'error'      => $emailError->getMessage(),
+                'request_id' => $updateRequest->id
+            ]);
+        }
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'Attendance update request submitted for manager approval',
+            'data'    => $updateRequest->load('manager')
+        ], 202);
+    }
+
+    /**
+     * Map attendance ids to their latest correction request. Approved requests
+     * win over pending ones; rejected requests are ignored.
+     */
+    private function attendanceCorrections($attendanceIds)
+    {
+        $ids = collect($attendanceIds)->filter()->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $requests = AttendanceUpdateRequest::whereIn('attendance_id', $ids)
+            ->whereIn('status', ['approved', 'pending'])
+            ->orderBy('created_at')
+            ->get();
+
+        return $requests->groupBy('attendance_id')->map(function ($group) {
+            return $group->where('status', 'approved')->sortByDesc('created_at')->first()
+                ?? $group->sortByDesc('created_at')->first();
+        });
+    }
+
+    /**
      * Build the user query used by the daily/weekly/monthly report endpoints.
      */
     private function reportUsersQuery(Request $request)
@@ -1443,7 +1584,79 @@ class AttendanceController extends Controller implements HasMiddleware
             });
         }
 
+        if ($request->filled('employee_ids')) {
+            $employeeIds = $this->parseIdList($request->input('employee_ids'));
+            if (empty($employeeIds)) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereIn('employee_id', $employeeIds);
+            }
+        }
+
+        if ($request->filled('manager_id')) {
+            $query->whereIn('employee_id', $this->teamEmployeeIds($request->input('manager_id')));
+        }
+
+        // Users with only the team permission must never receive company-wide reports.
+        $this->applyTeamScope($query);
+
         return $query;
+    }
+
+    /**
+     * Normalise a comma separated or array based list of ids.
+     */
+    private function parseIdList($value): array
+    {
+        $ids = is_array($value) ? $value : explode(',', (string) $value);
+
+        return array_values(array_unique(array_filter(array_map(function ($id) {
+            return is_numeric(trim((string) $id)) ? (int) trim((string) $id) : null;
+        }, $ids))));
+    }
+
+    /**
+     * Employee ids for a manager: the manager themselves plus their direct reports.
+     */
+    private function teamEmployeeIds($managerId): array
+    {
+        if (!is_numeric($managerId)) {
+            return [];
+        }
+
+        $managerId = (int) $managerId;
+
+        return Employee::where('reporting_manager_id', $managerId)
+            ->pluck('id')
+            ->push($managerId)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Restrict a query to the authenticated user's team when they do not have
+     * company-wide attendance permissions (Attendance Index / View Company).
+     */
+    private function applyTeamScope($query)
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return $query;
+        }
+
+        $hasCompanyScope = $user->hasAnyPermission(['Attendance Index', 'Attendance View Company']);
+
+        if ($hasCompanyScope || !$user->hasPermissionTo('Attendance View Team')) {
+            return $query;
+        }
+
+        if (!$user->employee_id) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn('employee_id', Employee::teamIdsFor((int) $user->employee_id));
     }
 
     /**
@@ -1737,6 +1950,8 @@ class AttendanceController extends Controller implements HasMiddleware
             ->get()
             ->keyBy(fn($item) => $item->date instanceof Carbon ? $item->date->toDateString() : $item->date);
 
+        $corrections = $this->attendanceCorrections($attendances->pluck('id'));
+
         // Generate all dates of the month
         $monthDates = $this->getDateRange($startOfMonth, $endOfMonth);
         $today = Carbon::today()->toDateString();
@@ -1804,6 +2019,9 @@ class AttendanceController extends Controller implements HasMiddleware
                     case 'half_day':
                         $halfDayCount++;
                         break;
+                    case 'absent':
+                        $absentCount++;
+                        break;
                     default:
                         $presentCount++;
                 }
@@ -1827,6 +2045,9 @@ class AttendanceController extends Controller implements HasMiddleware
                 'clock_out' => $clockOut,
                 'working_hours' => $clockIn ? $workingHours : 0,
                 'has_record' => $attendance !== null,
+                'attendance_id' => $attendance?->id,
+                'correction_status' => $attendance ? $corrections->get($attendance->id)?->status : null,
+                'correction_reason' => $attendance ? $corrections->get($attendance->id)?->reason : null,
             ];
         }
 

@@ -173,14 +173,44 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
                 ? $attendance->date->toDateString()
                 : Carbon::parse($attendance->date)->toDateString();
 
-            $previousClockIn = $attendance->clock_in
-                ? Carbon::parse($attendanceDate . ' ' . $attendance->clock_in->format('H:i:s'))
-                : null;
-            $previousClockOut = $attendance->clock_out
-                ? Carbon::parse($attendanceDate . ' ' . $attendance->clock_out->format('H:i:s'))
-                : null;
+            $previousClockIn = null;
+            if ($attendance->clock_in) {
+                $clockInStr = is_string($attendance->clock_in)
+                    ? $attendance->clock_in
+                    : $attendance->clock_in->format('H:i:s');
+                $previousClockIn = Carbon::parse($attendanceDate . ' ' . $clockInStr);
+            }
+
+            $previousClockOut = null;
+            if ($attendance->clock_out) {
+                $clockOutStr = is_string($attendance->clock_out)
+                    ? $attendance->clock_out
+                    : $attendance->clock_out->format('H:i:s');
+                $previousClockOut = Carbon::parse($attendanceDate . ' ' . $clockOutStr);
+            }
 
             $attendance->update($data);
+
+            // If an auto-marked absent leave exists for this date, clean it up and refund balance
+            $autoLeave = \App\Models\Leave::where('user_id', $attendance->user_id)
+                ->where('from_date', '<=', $attendanceDate)
+                ->where('to_date', '>=', $attendanceDate)
+                ->where('reason', 'Auto-marked: absent without leave request.')
+                ->where('status', 'approved')
+                ->first();
+
+            if ($autoLeave) {
+                $balance = \App\Models\LeaveBalance::where('employee_id', $autoLeave->employee_id)
+                    ->where('leave_type_id', $autoLeave->leave_type_id)
+                    ->where('year', Carbon::parse($attendanceDate)->year)
+                    ->first();
+                if ($balance) {
+                    $balance->used = max(0, $balance->used - 1);
+                    $balance->balance = min($balance->allocated, $balance->balance + 1);
+                    $balance->save();
+                }
+                $autoLeave->delete();
+            }
 
             // Update request status
             $updateRequest->update([
