@@ -119,6 +119,43 @@ class Employee extends Model
         return $this->hasMany(Employee::class, 'reporting_manager_id');
     }
 
+    /**
+     * Employee ids that make up the "team" visible to the given employee.
+     *
+     * Managers see themselves plus their active direct reports. Employees who
+     * do not manage anyone see the team they belong to: their manager, their
+     * peers reporting to the same manager, and themselves.
+     */
+    public static function teamIdsFor(?int $employeeId): array
+    {
+        if (!$employeeId) {
+            return [];
+        }
+
+        $directReports = static::where('reporting_manager_id', $employeeId)
+            ->where('is_active', true)
+            ->pluck('id');
+
+        if ($directReports->isNotEmpty()) {
+            return $directReports->push($employeeId)->unique()->values()->all();
+        }
+
+        $managerId = static::whereKey($employeeId)->value('reporting_manager_id');
+
+        if ($managerId) {
+            return static::where('reporting_manager_id', $managerId)
+                ->where('is_active', true)
+                ->pluck('id')
+                ->push($managerId)
+                ->push($employeeId)
+                ->unique()
+                ->values()
+                ->all();
+        }
+
+        return [$employeeId];
+    }
+
     public function province(): BelongsTo
     {
         return $this->belongsTo(Province::class);

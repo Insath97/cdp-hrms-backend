@@ -26,9 +26,11 @@ class UpdateAttendanceRequest extends FormRequest
         return [
             'employee_id' => 'sometimes|exists:employees,id',
             'user_id' => 'sometimes|exists:users,id',
+            'date' => 'nullable|date',
             'clock_in' => 'nullable|date_format:H:i:s',
             'clock_out' => 'nullable|date_format:H:i:s',
             'status' => 'nullable|in:present,absent,half_day,leave',
+            'reason' => 'nullable|string|max:1000',
         ];
     }
 

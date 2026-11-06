@@ -174,6 +174,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     });
 
     Route::get('employees/list', [EmployeeController::class, 'getEmployeeList']);
+    Route::get('employees/team', [EmployeeController::class, 'teamMembers']);
     Route::get('employees/{employee}/metrics', [EmployeeController::class, 'getMetrics']);
     Route::put('employees/{employee}', [EmployeeController::class, 'update']);
     Route::post('employees/{employee}', [EmployeeController::class, 'update']);

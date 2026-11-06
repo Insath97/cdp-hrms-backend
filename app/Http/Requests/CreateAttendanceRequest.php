@@ -30,6 +30,7 @@ class CreateAttendanceRequest extends FormRequest
             'clock_in' => 'nullable|date_format:H:i:s',
             'clock_out' => 'nullable|date_format:H:i:s',
             'status' => 'nullable|in:present,absent,half_day,leave',
+            'reason' => 'nullable|string|max:1000',
         ];
     }
 
