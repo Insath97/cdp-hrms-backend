@@ -387,11 +387,11 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
     // Purpose code management (CUS salary upload reference data)
     Route::patch('purpose-codes/{purpose_code}/toggle-status', [PurposeCodeController::class, 'toggleStatus']);
     Route::apiResource('purpose-codes', PurposeCodeController::class);
-});
 
-// Backdated attendance (public — no auth) for recording missed/past clock-in & clock-out
-Route::prefix('v1/backdated-attendances')->group(function () {
-    Route::post('clock-in', [BackdatedAttendanceController::class, 'clockIn']);
-    Route::post('clock-out', [BackdatedAttendanceController::class, 'clockOut']);
-    Route::put('edit', [BackdatedAttendanceController::class, 'edit']);
+    // Backdated attendance (public — no auth) for recording missed/past clock-in & clock-out
+    Route::prefix('backdated-attendances')->group(function () {
+        Route::post('clock-in', [BackdatedAttendanceController::class, 'clockIn']);
+        Route::post('clock-out', [BackdatedAttendanceController::class, 'clockOut']);
+        Route::put('edit', [BackdatedAttendanceController::class, 'edit']);
+    });
 });
