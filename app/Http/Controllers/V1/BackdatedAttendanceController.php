@@ -10,12 +10,15 @@ use App\Models\AttendanceSetting;
 use App\Models\Employee;
 use App\Models\Holiday;
 use App\Models\User;
+use App\Traits\ActivityLogTrait;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 
 class BackdatedAttendanceController extends Controller
 {
+    use ActivityLogTrait;
+
     private const BACKDATED_GEOFENCE_LABEL = 'Backdated / Manual';
 
     /**
@@ -70,6 +73,7 @@ class BackdatedAttendanceController extends Controller
                 $existing->save();
                 $attendance = $existing;
                 $httpStatus = 200;
+                $action = 'UPDATE';
                 $message = 'Clock-in updated successfully';
             } else {
                 $attendance = new Attendance([
@@ -88,8 +92,11 @@ class BackdatedAttendanceController extends Controller
 
                 $attendance->save();
                 $httpStatus = 201;
+                $action = 'CREATE';
                 $message = 'Clock-in recorded successfully';
             }
+
+            $this->logActivity($action, 'Attendance', "{$action} attendance record on {$attendance->date} for Employee ID: {$attendance->employee_id}", $data + ['target_user_id' => $user->id]);
 
             return response()->json([
                 'status' => 'success',
@@ -168,6 +175,9 @@ class BackdatedAttendanceController extends Controller
 
             $attendance->working_hours = Attendance::calculateWorkingHours($start, $end);
             $attendance->save();
+
+            $action = $isUpdate ? 'UPDATE' : 'CLOCK_OUT';
+            $this->logActivity($action, 'Attendance', "{$action} attendance record on {$attendance->date} for Employee ID: {$attendance->employee_id}", $data + ['target_user_id' => $user->id]);
 
             return response()->json([
                 'status' => 'success',
@@ -281,6 +291,9 @@ class BackdatedAttendanceController extends Controller
             }
 
             $attendance->save();
+
+            $action = $isNew ? 'CREATE' : 'UPDATE';
+            $this->logActivity($action, 'Attendance', "{$action} attendance record on {$attendance->date} for Employee ID: {$attendance->employee_id}", $data + ['target_user_id' => $user->id]);
 
             return response()->json([
                 'status' => 'success',
