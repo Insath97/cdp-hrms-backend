@@ -14,6 +14,7 @@ use App\Models\AttendanceUpdateRequest;
 use App\Models\Employee;
 use App\Models\User;
 use App\Models\Geofence;
+use App\Models\OpenLocationMember;
 use App\Models\Leave;
 use App\Models\Holiday;
 use App\Http\Controllers\V1\GeofenceController;
@@ -206,45 +207,55 @@ class AttendanceController extends Controller implements HasMiddleware
                 $latitude = $request->input('latitude');
                 $longitude = $request->input('longitude');
 
-                if ($latitude === null || $longitude === null) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'Your location could not be verified. Please enable location services to clock in.',
-                    ], 403);
-                }
-
                 $userForCheck = $targetUser ?? $authUser;
-                $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
 
-                if (!$allowedLocations || $allowedLocations->isEmpty()) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'No allowed locations assigned. Please contact your administrator.',
-                    ], 403);
-                }
-
-                foreach ($allowedLocations as $loc) {
-                    $gf = $loc->geofence;
-                    if (!$gf || !$gf->is_active) continue;
-                    $dist = GeofenceController::haversineDistance(
-                        (float) $latitude,
-                        (float) $longitude,
-                        (float) $gf->latitude,
-                        (float) $gf->longitude
-                    );
-                    if ($dist <= (float) $gf->radius_meters) {
+                // Open-location members may clock in from anywhere (location optional).
+                if ($userForCheck?->hasOpenLocationAccess()) {
+                    if ($latitude !== null && $longitude !== null) {
                         $data['in_latitude'] = $latitude;
                         $data['in_longitude'] = $longitude;
-                        $data['in_geofence_name'] = $gf->name;
-                        break;
                     }
-                }
+                    $data['in_geofence_name'] = OpenLocationMember::LABEL;
+                } else {
+                    if ($latitude === null || $longitude === null) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'Your location could not be verified. Please enable location services to clock in.',
+                        ], 403);
+                    }
 
-                if (!isset($data['in_geofence_name'])) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'You are outside your allowed locations. Please move to an approved area.',
-                    ], 403);
+                    $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+                    if (!$allowedLocations || $allowedLocations->isEmpty()) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'No allowed locations assigned. Please contact your administrator.',
+                        ], 403);
+                    }
+
+                    foreach ($allowedLocations as $loc) {
+                        $gf = $loc->geofence;
+                        if (!$gf || !$gf->is_active) continue;
+                        $dist = GeofenceController::haversineDistance(
+                            (float) $latitude,
+                            (float) $longitude,
+                            (float) $gf->latitude,
+                            (float) $gf->longitude
+                        );
+                        if ($dist <= (float) $gf->radius_meters) {
+                            $data['in_latitude'] = $latitude;
+                            $data['in_longitude'] = $longitude;
+                            $data['in_geofence_name'] = $gf->name;
+                            break;
+                        }
+                    }
+
+                    if (!isset($data['in_geofence_name'])) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'You are outside your allowed locations. Please move to an approved area.',
+                        ], 403);
+                    }
                 }
             }
 
@@ -599,44 +610,53 @@ class AttendanceController extends Controller implements HasMiddleware
             $latitude = $request->input('latitude');
             $longitude = $request->input('longitude');
 
-            if ($latitude === null || $longitude === null) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Your location could not be verified. Please enable location services to clock out.',
-                ], 403);
-            }
-
-            $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
-
-            if ($allowedLocations->isEmpty()) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'No allowed locations assigned. Please contact your administrator.',
-                ], 403);
-            }
-
-            foreach ($allowedLocations as $loc) {
-                $gf = $loc->geofence;
-                if (!$gf || !$gf->is_active) continue;
-                $dist = GeofenceController::haversineDistance(
-                    (float) $latitude,
-                    (float) $longitude,
-                    (float) $gf->latitude,
-                    (float) $gf->longitude
-                );
-                if ($dist <= (float) $gf->radius_meters) {
+            // Open-location members may clock out from anywhere (location optional).
+            if ($user->hasOpenLocationAccess()) {
+                if ($latitude !== null && $longitude !== null) {
                     $attendance->out_latitude = $latitude;
                     $attendance->out_longitude = $longitude;
-                    $attendance->out_geofence_name = $gf->name;
-                    break;
                 }
-            }
+                $attendance->out_geofence_name = OpenLocationMember::LABEL;
+            } else {
+                if ($latitude === null || $longitude === null) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Your location could not be verified. Please enable location services to clock out.',
+                    ], 403);
+                }
 
-            if (!$attendance->out_geofence_name) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
-                ], 403);
+                $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
+
+                if ($allowedLocations->isEmpty()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'No allowed locations assigned. Please contact your administrator.',
+                    ], 403);
+                }
+
+                foreach ($allowedLocations as $loc) {
+                    $gf = $loc->geofence;
+                    if (!$gf || !$gf->is_active) continue;
+                    $dist = GeofenceController::haversineDistance(
+                        (float) $latitude,
+                        (float) $longitude,
+                        (float) $gf->latitude,
+                        (float) $gf->longitude
+                    );
+                    if ($dist <= (float) $gf->radius_meters) {
+                        $attendance->out_latitude = $latitude;
+                        $attendance->out_longitude = $longitude;
+                        $attendance->out_geofence_name = $gf->name;
+                        break;
+                    }
+                }
+
+                if (!$attendance->out_geofence_name) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
+                    ], 403);
+                }
             }
 
             // Capture out IP Address
