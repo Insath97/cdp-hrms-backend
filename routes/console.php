@@ -8,9 +8,11 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Send birthday notifications daily at 8:01 AM (Windows scheduler runs at minute 01)
+// Birthday alerts are day-scoped. The command removes previous days' alerts
+// and only creates today's alerts once per user, so it is safe to run hourly.
+// This covers machines that are switched on after 08:01 (the old daily time).
 Schedule::command('notifications:birthdays')
-    ->dailyAt('08:01')
+    ->hourlyAt(1)
     ->withoutOverlapping()
     ->runInBackground();
 

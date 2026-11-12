@@ -127,17 +127,31 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasOne(OpenLocationMember::class);
     }
 
+    public function openLocationRequests()
+    {
+        return $this->hasMany(OpenLocationRequest::class);
+    }
+
     /* Helper Methods */
     /**
      * An approved open-location member may clock in/out (and log in) from anywhere.
      */
     public function hasOpenLocationAccess(): bool
     {
-        if ($this->relationLoaded('openLocationMember')) {
-            return (bool) optional($this->openLocationMember)->is_active;
+        $member = $this->relationLoaded('openLocationMember')
+            ? $this->openLocationMember
+            : $this->openLocationMember()->first();
+
+        if ($member) {
+            return (bool) $member->is_active;
         }
 
-        return $this->openLocationMember()->where('is_active', true)->exists();
+        // No membership row was created (for example a request approved by an
+        // older version of the approval flow). Treat an approved request as
+        // access so the employee is not locked out.
+        return $this->openLocationRequests()
+            ->where('status', OpenLocationRequest::STATUS_APPROVED)
+            ->exists();
     }
 
     public function canLogin(): bool

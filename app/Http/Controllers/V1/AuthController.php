@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\V1\GeofenceController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -57,30 +56,14 @@ class AuthController extends Controller
                 ], 401);
             }
 
-            // Geofence check on login
-            $latitude = $request->input('latitude');
-            $longitude = $request->input('longitude');
-            $bypassRequested = $request->input('bypass_geofence') === true || $request->input('bypass_geofence') === 'true';
             $isOpenLocation = $user->hasOpenLocationAccess();
-            if ($latitude !== null && $longitude !== null && !$bypassRequested && !$isOpenLocation) {
-                $matchedGeofence = GeofenceController::checkCoordinates($latitude, $longitude, $user);
-                if (!$matchedGeofence) {
-                    $assignedCount = $user->geofences()->where('is_active', true)->count();
-                    if ($assignedCount > 0) {
-                        Auth::guard('api')->logout();
-                        return response()->json([
-                            'status' => 'error',
-                            'message' => 'Login is restricted to approved locations. You are outside your assigned area.',
-                        ], 403);
-                    }
-                }
-            }
 
             $isFirstLogin = is_null($user->password_changed_at);
 
             $user->updateLastLogin($request->ip());
 
             $user->setAttribute('is_first_login', $isFirstLogin);
+            $user->setAttribute('has_open_location_access', $isOpenLocation);
 
             $cookie = cookie(
                 'auth_token',
@@ -163,6 +146,7 @@ class AuthController extends Controller
             $user = auth('api')->user();
 
             $user->load(['employee', 'roles.permissions']);
+            $user->setAttribute('has_open_location_access', $user->hasOpenLocationAccess());
 
             // Hide pivot tables
             if ($user->relationLoaded('roles')) {

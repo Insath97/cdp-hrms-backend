@@ -142,6 +142,10 @@ class UserController extends Controller implements HasMiddleware
 
             $user = User::create($data);
 
+            if ($imagePath) {
+                $this->syncEmployeeProfileImage($user, $imagePath);
+            }
+
             $this->logActivity('CREATE', 'User', "Created user: {$user->name}", $request->except(['password']));
 
             // Assign Role
@@ -278,6 +282,10 @@ class UserController extends Controller implements HasMiddleware
 
             $user->update($data);
 
+            if ($imagePath) {
+                $this->syncEmployeeProfileImage($user, $imagePath);
+            }
+
             $this->logActivity('UPDATE', 'User', "Updated user: {$user->name}", $request->except(['password']));
 
             if (isset($data['role'])) {
@@ -320,6 +328,31 @@ class UserController extends Controller implements HasMiddleware
         }
     }
 
+    /**
+     * Keep the linked employee record's photo in step with the user account so
+     * the employee list and the header avatar always show the same image.
+     */
+    private function syncEmployeeProfileImage(User $user, string $imagePath): void
+    {
+        if (! $user->employee_id) {
+            return;
+        }
+
+        $employee = \App\Models\Employee::find($user->employee_id);
+
+        if (! $employee) {
+            return;
+        }
+
+        $oldPath = $employee->profile_image;
+
+        if ($oldPath && $oldPath !== $imagePath) {
+            $this->deleteFile($oldPath);
+        }
+
+        $employee->update(['profile_image' => $imagePath]);
+    }
+
     public function destroy(string $id)
     {
         try {
@@ -348,6 +381,16 @@ class UserController extends Controller implements HasMiddleware
                     'status' => 'error',
                     'message' => 'You cannot delete your own account'
                 ], 422);
+            }
+
+            // The employee record may share the user's image path (see
+            // syncEmployeeProfileImage), so clear it before removing the file.
+            $employee = $user->employee_id
+                ? \App\Models\Employee::find($user->employee_id)
+                : null;
+
+            if ($employee && $user->profile_image && $employee->profile_image === $user->profile_image) {
+                $employee->update(['profile_image' => null]);
             }
 
             $this->deleteFile($user->profile_image);

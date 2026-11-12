@@ -17,7 +17,13 @@ class NotificationController extends Controller
             $user = $request->user();
             $perPage = $request->get('per_page', 15);
             
-            $notifications = $user->notifications()->paginate($perPage);
+            $notifications = $user->notifications()
+                ->where(function ($query) {
+                    $query->where('created_at', '>=', now()->startOfDay()->toDateTimeString())
+                        ->orWhere('data->type', '!=', 'birthday')
+                        ->orWhereNull('data->type');
+                })
+                ->paginate($perPage);
 
             return response()->json([
                 'status' => 'success',
@@ -40,7 +46,13 @@ class NotificationController extends Controller
     {
         try {
             $user = $request->user();
-            $notifications = $user->unreadNotifications()->get();
+            $notifications = $user->unreadNotifications()
+                ->where(function ($query) {
+                    $query->where('created_at', '>=', now()->startOfDay()->toDateTimeString())
+                        ->orWhere('data->type', '!=', 'birthday')
+                        ->orWhereNull('data->type');
+                })
+                ->get();
 
             return response()->json([
                 'status' => 'success',

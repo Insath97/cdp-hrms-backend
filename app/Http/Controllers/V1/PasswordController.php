@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PasswordChangeRequest;
 use App\Services\SmsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -172,8 +173,14 @@ class PasswordController extends Controller
                 'password_changed_at' => now(),
             ]);
 
-            // Mark request as verified
+            // Mark request as verified and clear its pending-request
+            // notification from every recipient's list.
             $changeRequest->update(['status' => 'verified']);
+
+            DB::table('notifications')
+                ->where('data->type', 'password_request')
+                ->where('data->password_change_request_id', $changeRequest->id)
+                ->delete();
 
             return response()->json([
                 'status' => 'success',
@@ -344,8 +351,14 @@ class PasswordController extends Controller
                 'password_changed_at' => now(),
             ]);
 
-            // Mark request as verified
+            // Mark request as verified and clear its pending-request
+            // notification from every recipient's list.
             $changeRequest->update(['status' => 'verified']);
+
+            DB::table('notifications')
+                ->where('data->type', 'password_request')
+                ->where('data->password_change_request_id', $changeRequest->id)
+                ->delete();
 
             return response()->json([
                 'status' => 'success',
