@@ -4,9 +4,9 @@ namespace App\Http\Controllers\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\PasswordChangeRequest;
-use App\Notifications\PasswordRequestStatusNotification;
 use App\Services\SmsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PasswordChangeRequestController extends Controller
@@ -68,6 +68,13 @@ class PasswordChangeRequestController extends Controller
                 'status' => 'approved',
             ]);
 
+            // The request is handled, so remove its pending-request
+            // notification from every recipient's notification list.
+            DB::table('notifications')
+                ->where('data->type', 'password_request')
+                ->where('data->password_change_request_id', $changeRequest->id)
+                ->delete();
+
             // Send SMS
             $message = "Your OTP for password change of HRIS is {$otp}. Valid for 60 minutes.";
             $smsSent = $this->smsService->sendSms($changeRequest->employee->phone_primary, $message);
@@ -77,11 +84,6 @@ class PasswordChangeRequestController extends Controller
                 'phone' => $changeRequest->employee->phone_primary,
                 'sms_sent' => $smsSent,
             ]);
-
-            // Notify the requesting user
-            if ($changeRequest->user) {
-                $changeRequest->user->notify(new PasswordRequestStatusNotification($changeRequest, 'approved'));
-            }
 
             return response()->json([
                 'status' => 'success',
@@ -113,10 +115,12 @@ class PasswordChangeRequestController extends Controller
                 'status' => 'rejected',
             ]);
 
-            // Notify the requesting user
-            if ($changeRequest->user) {
-                $changeRequest->user->notify(new PasswordRequestStatusNotification($changeRequest, 'rejected'));
-            }
+            // The request is handled, so remove its pending-request
+            // notification from every recipient's notification list.
+            DB::table('notifications')
+                ->where('data->type', 'password_request')
+                ->where('data->password_change_request_id', $changeRequest->id)
+                ->delete();
 
             return response()->json([
                 'status' => 'success',

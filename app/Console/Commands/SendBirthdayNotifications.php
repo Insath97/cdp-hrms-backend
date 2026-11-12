@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Notifications\BirthdayNotification;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SendBirthdayNotifications extends Command
@@ -19,6 +20,14 @@ class SendBirthdayNotifications extends Command
     {
         $date = $this->argument('date') ?? Carbon::today()->toDateString();
         $carbonDate = Carbon::parse($date);
+
+        // Birthday notifications are only relevant on the day itself. Remove
+        // older ones so users who have not logged in for a few days do not
+        // receive a backlog of stale birthday alerts.
+        DB::table('notifications')
+            ->where('data->type', 'birthday')
+            ->where('created_at', '<', Carbon::today()->toDateTimeString())
+            ->delete();
 
         $this->info("Checking birthdays for: {$date}");
 
@@ -46,6 +55,21 @@ class SendBirthdayNotifications extends Command
                 ->get();
 
             foreach ($allUsers as $notifiableUser) {
+                // The command can run several times a day (for example when the
+                // machine is switched on after 08:01). Never create a second
+                // alert for the same employee on the same day.
+                $alreadySent = DB::table('notifications')
+                    ->where('notifiable_type', $notifiableUser->getMorphClass())
+                    ->where('notifiable_id', $notifiableUser->id)
+                    ->where('data->type', 'birthday')
+                    ->where('data->employee_id', $employee->id)
+                    ->where('created_at', '>=', Carbon::today()->toDateTimeString())
+                    ->exists();
+
+                if ($alreadySent) {
+                    continue;
+                }
+
                 $notifiableUser->notify(new BirthdayNotification($employee));
                 $sentCount++;
             }

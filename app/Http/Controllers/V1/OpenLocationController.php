@@ -355,7 +355,33 @@ class OpenLocationController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            $member->update(['is_active' => false]);
+            $actor = Auth::user();
+
+            DB::transaction(function () use ($member, $user, $actor) {
+                $member->update(['is_active' => false]);
+
+                // Keep the request history in sync with the membership. Without
+                // this the request would still read "approved" even though the
+                // employee no longer has access, which is confusing for HR and
+                // for the employee.
+                $openLocationRequest = $member->request_id
+                    ? OpenLocationRequest::find($member->request_id)
+                    : null;
+
+                $openLocationRequest ??= OpenLocationRequest::where('user_id', $user->id)
+                    ->where('status', OpenLocationRequest::STATUS_APPROVED)
+                    ->latest()
+                    ->first();
+
+                if ($openLocationRequest) {
+                    $openLocationRequest->update([
+                        'status' => OpenLocationRequest::STATUS_REJECTED,
+                        'rejected_by' => $actor?->id,
+                        'rejected_at' => now(),
+                        'rejection_reason' => 'Open-location access revoked',
+                    ]);
+                }
+            });
 
             $this->logActivity(
                 'REVOKE',

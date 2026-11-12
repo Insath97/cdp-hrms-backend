@@ -81,6 +81,7 @@ class AuthController extends Controller
             $user->updateLastLogin($request->ip());
 
             $user->setAttribute('is_first_login', $isFirstLogin);
+            $user->setAttribute('has_open_location_access', $isOpenLocation);
 
             $cookie = cookie(
                 'auth_token',
@@ -163,6 +164,7 @@ class AuthController extends Controller
             $user = auth('api')->user();
 
             $user->load(['employee', 'roles.permissions']);
+            $user->setAttribute('has_open_location_access', $user->hasOpenLocationAccess());
 
             // Hide pivot tables
             if ($user->relationLoaded('roles')) {

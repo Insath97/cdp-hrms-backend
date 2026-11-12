@@ -16,6 +16,20 @@ class CreateAttendanceRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation()
+    {
+        $merge = [];
+        if ($this->has('clock_in') && is_string($this->clock_in) && strlen($this->clock_in) === 5) {
+            $merge['clock_in'] = $this->clock_in . ':00';
+        }
+        if ($this->has('clock_out') && is_string($this->clock_out) && strlen($this->clock_out) === 5) {
+            $merge['clock_out'] = $this->clock_out . ':00';
+        }
+        if (!empty($merge)) {
+            $this->merge($merge);
+        }
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *

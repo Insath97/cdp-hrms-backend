@@ -182,8 +182,15 @@ class AttendanceController extends Controller implements HasMiddleware
             // A real-time clock-in is for today, by self, clock_in only, without correction reason, and not already clocked in
             $isRealTimeClockIn = $isToday && $isClockInOnly && $isSelf && !$hasReason && (!$existingAttendance || !$existingAttendance->clock_in);
 
-            // If not a Super Admin, and has a reporting manager, and not a real-time clock-in -> route to AttendanceUpdateRequest
-            if (!$authUser->hasRole('Super Admin') && $employee && $employee->reporting_manager_id && !$isRealTimeClockIn) {
+            // Corrections to the employee's own attendance must always await
+            // approval - even when the employee has no reporting manager (those
+            // are approved by an administrator). Other updates keep the
+            // existing manager-approval routing.
+            $isSelfCorrection = $hasReason && $isSelf;
+
+            // If not a Super Admin, and the update needs approval, route it to
+            // an AttendanceUpdateRequest.
+            if (!$authUser->hasRole('Super Admin') && $employee && !$isRealTimeClockIn && ($isSelfCorrection || $employee->reporting_manager_id)) {
                 if (!$existingAttendance) {
                     $attendance = Attendance::create([
                         'user_id'       => $targetUserId,
@@ -201,6 +208,10 @@ class AttendanceController extends Controller implements HasMiddleware
 
                 return $this->submitAttendanceUpdateRequest($attendance, $employee, $authUser, $data, $request);
             }
+
+            // `reason` is not an attendance column; it is only used by the
+            // approval workflow above.
+            unset($data['reason']);
 
             // Geofence / allowed-location check only for real-time clock-in
             if ($isRealTimeClockIn) {
@@ -436,8 +447,13 @@ class AttendanceController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            // If not a Super Admin, and has a reporting manager, create a request instead
-            if (!$user->hasRole('Super Admin') && $employee && $employee->reporting_manager_id) {
+            // Corrections to the employee's own attendance must always await
+            // approval - even when the employee has no reporting manager (those
+            // are approved by an administrator). Other updates keep the
+            // existing manager-approval routing.
+            $isSelfCorrection = $attendance->user_id == $user->id && $request->filled('reason');
+
+            if (!$user->hasRole('Super Admin') && $employee && ($isSelfCorrection || $employee->reporting_manager_id)) {
                 return $this->submitAttendanceUpdateRequest($attendance, $employee, $user, $data, $request);
             }
 
@@ -525,6 +541,10 @@ class AttendanceController extends Controller implements HasMiddleware
             if (isset($data['user_id'])) {
                 unset($data['user_id']);
             }
+
+            // `reason` is not an attendance column; it is only used by the
+            // approval workflow above.
+            unset($data['reason']);
 
             $attendance->update($data);
 
@@ -954,6 +974,10 @@ class AttendanceController extends Controller implements HasMiddleware
                         'is_on_time' => $is_on_time,
                         'correction_reason' => $correction?->reason,
                         'correction_status' => $correction?->status,
+                        'previous_clock_in' => $correction?->previous_clock_in ? Carbon::parse($correction->previous_clock_in)->format('H:i:s') : null,
+                        'previous_clock_out' => $correction?->previous_clock_out ? Carbon::parse($correction->previous_clock_out)->format('H:i:s') : null,
+                        'correction_previous_clock_in' => $correction?->previous_clock_in ? Carbon::parse($correction->previous_clock_in)->format('H:i:s') : null,
+                        'correction_previous_clock_out' => $correction?->previous_clock_out ? Carbon::parse($correction->previous_clock_out)->format('H:i:s') : null,
                     ]
                 ];
             }
@@ -1101,6 +1125,10 @@ class AttendanceController extends Controller implements HasMiddleware
                             'working_hours' => $attendance->working_hours,
                             'correction_reason' => $corrections->get($attendance->id)?->reason,
                             'correction_status' => $corrections->get($attendance->id)?->status,
+                            'previous_clock_in' => $corrections->get($attendance->id)?->previous_clock_in ? Carbon::parse($corrections->get($attendance->id)->previous_clock_in)->format('H:i:s') : null,
+                            'previous_clock_out' => $corrections->get($attendance->id)?->previous_clock_out ? Carbon::parse($corrections->get($attendance->id)->previous_clock_out)->format('H:i:s') : null,
+                            'correction_previous_clock_in' => $corrections->get($attendance->id)?->previous_clock_in ? Carbon::parse($corrections->get($attendance->id)->previous_clock_in)->format('H:i:s') : null,
+                            'correction_previous_clock_out' => $corrections->get($attendance->id)?->previous_clock_out ? Carbon::parse($corrections->get($attendance->id)->previous_clock_out)->format('H:i:s') : null,
                         ];
                     } else {
                         // Check if this date is a holiday
@@ -1119,6 +1147,10 @@ class AttendanceController extends Controller implements HasMiddleware
                             'working_hours' => 0,
                             'correction_reason' => null,
                             'correction_status' => null,
+                            'previous_clock_in' => null,
+                            'previous_clock_out' => null,
+                            'correction_previous_clock_in' => null,
+                            'correction_previous_clock_out' => null,
                         ];
                     }
                 }
@@ -1324,6 +1356,10 @@ class AttendanceController extends Controller implements HasMiddleware
                             'working_hours' => $attendance->working_hours,
                             'correction_reason' => $corrections->get($attendance->id)?->reason,
                             'correction_status' => $corrections->get($attendance->id)?->status,
+                            'previous_clock_in' => $corrections->get($attendance->id)?->previous_clock_in ? Carbon::parse($corrections->get($attendance->id)->previous_clock_in)->format('H:i:s') : null,
+                            'previous_clock_out' => $corrections->get($attendance->id)?->previous_clock_out ? Carbon::parse($corrections->get($attendance->id)->previous_clock_out)->format('H:i:s') : null,
+                            'correction_previous_clock_in' => $corrections->get($attendance->id)?->previous_clock_in ? Carbon::parse($corrections->get($attendance->id)->previous_clock_in)->format('H:i:s') : null,
+                            'correction_previous_clock_out' => $corrections->get($attendance->id)?->previous_clock_out ? Carbon::parse($corrections->get($attendance->id)->previous_clock_out)->format('H:i:s') : null,
                         ];
                     } else {
                         // Check if this date is a holiday
@@ -1342,6 +1378,10 @@ class AttendanceController extends Controller implements HasMiddleware
                             'working_hours' => 0,
                             'correction_reason' => null,
                             'correction_status' => null,
+                            'previous_clock_in' => null,
+                            'previous_clock_out' => null,
+                            'correction_previous_clock_in' => null,
+                            'correction_previous_clock_out' => null,
                         ];
                     }
                 }
@@ -1482,13 +1522,32 @@ class AttendanceController extends Controller implements HasMiddleware
             }
         }
 
+        $previousClockIn = null;
+        if ($attendance->clock_in) {
+            $clockInStr = is_string($attendance->clock_in)
+                ? $attendance->clock_in
+                : $attendance->clock_in->format('H:i:s');
+            $previousClockIn = Carbon::parse($dateStr . ' ' . $clockInStr);
+        }
+
+        $previousClockOut = null;
+        if ($attendance->clock_out) {
+            $clockOutStr = is_string($attendance->clock_out)
+                ? $attendance->clock_out
+                : $attendance->clock_out->format('H:i:s');
+            $previousClockOut = Carbon::parse($dateStr . ' ' . $clockOutStr);
+        }
+
         $updateRequest = AttendanceUpdateRequest::create([
             'attendance_id'       => $attendance->id,
+            'date'                => $dateStr,
             'user_id'             => $user->id,
             'employee_id'         => $employee->id,
             'manager_id'          => $employee->reporting_manager_id,
             'requested_clock_in'  => $requestedClockIn,
             'requested_clock_out' => $requestedClockOut,
+            'previous_clock_in'   => $previousClockIn,
+            'previous_clock_out'  => $previousClockOut,
             'reason'              => $request->input('reason', 'Attendance update requested by employee.'),
             'status'              => 'pending'
         ]);
@@ -2068,6 +2127,10 @@ class AttendanceController extends Controller implements HasMiddleware
                 'attendance_id' => $attendance?->id,
                 'correction_status' => $attendance ? $corrections->get($attendance->id)?->status : null,
                 'correction_reason' => $attendance ? $corrections->get($attendance->id)?->reason : null,
+                'previous_clock_in' => $attendance && $corrections->get($attendance->id)?->previous_clock_in ? Carbon::parse($corrections->get($attendance->id)->previous_clock_in)->format('H:i:s') : null,
+                'previous_clock_out' => $attendance && $corrections->get($attendance->id)?->previous_clock_out ? Carbon::parse($corrections->get($attendance->id)->previous_clock_out)->format('H:i:s') : null,
+                'correction_previous_clock_in' => $attendance && $corrections->get($attendance->id)?->previous_clock_in ? Carbon::parse($corrections->get($attendance->id)->previous_clock_in)->format('H:i:s') : null,
+                'correction_previous_clock_out' => $attendance && $corrections->get($attendance->id)?->previous_clock_out ? Carbon::parse($corrections->get($attendance->id)->previous_clock_out)->format('H:i:s') : null,
             ];
         }
 
