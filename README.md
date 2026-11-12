@@ -1,61 +1,283 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 🔒 CDP HRMS API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+> **CONFIDENTIAL — PROPRIETARY SOFTWARE**
+> This repository and its contents are confidential and proprietary.
+> For internal use only. Do not copy, distribute, publish, or share
+> outside the authorized team — including source code, API docs, or credentials.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Overview
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+CDP HRMS API is the backend REST API for the CDP Human Resource Management System. It powers employee management, attendance (clock-in/out with geofencing), leave, payroll, loans, letters, notifications, and management reports.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- **API versioning:** all endpoints live under `/api/v1`
+- **Auth:** JWT bearer tokens with role/permission-based access control
+- **Style:** JSON request/response for every endpoint
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Tech Stack
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+| Layer | Technology |
+|-------|-----------|
+| Framework | Laravel 12 |
+| PHP | ^8.2 |
+| Database | MySQL |
+| Authentication | JWT (`php-open-source-saver/jwt-auth`) + Sanctum (admin routes) |
+| Authorization | Spatie Laravel Permission (roles & permissions) |
+| Spreadsheets | PhpSpreadsheet (imports, EPF/ETF/CUS reports) |
+| PDF | barryvdh/laravel-dompdf |
+| Social login | Laravel Socialite (Google) |
+| Testing | Pest |
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## Features / Modules
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+| Module | Description |
+|--------|-------------|
+| Auth & Users | Login (JWT), logout, password change/reset with OTP, user management |
+| Roles & Permissions | Spatie roles, permissions, module-level access control |
+| Employees & Org Units | Employee CRUD, departments, designations, branches, provinces, regions, zonals |
+| Attendance | Clock-in/out, late calculation with grace period, session expiry, auto-absent marking |
+| Attendance Geofencing | Haversine distance check against allowed office geofences; open-location members |
+| Backdated Attendance API | Public endpoints to store/edit missed or manual attendance incl. timestamps |
+| Fingerprint Integration | Device webhook (HMAC-verified) + attendance sync/manual entry |
+| Leave Management | Leave types, leave requests/approvals, leave balances, auto leave conversion |
+| Payroll | Payroll periods/records, deductions, settings, payslip requests |
+| Statutory Reports | EPF, ETF, CUS salary reports |
+| Loans | Loan issuance and repayment tracking |
+| Letters | Offer/experience & other letter generation (PDF) |
+| Notifications | In-app notifications + daily birthday & work-anniversary emails |
+| Holidays | Weekend/holiday calendar (Sat/Sun treated as holidays) |
+| Reports | Daily/weekly/monthly attendance reports, company-wide reports |
+| Banks & Purpose Codes | Bank directory, CUS purpose codes |
+| Import / Export | Bulk table import with validation |
+| Activity Log | Audit trail of user actions |
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## Requirements
 
-## Contributing
+- PHP >= 8.2 with extensions: `pdo_mysql`, `mbstring`, `openssl`, `tokenizer`, `xml`, `ctype`, `json`, `bcmath`, `gd` (PDF)
+- Composer 2.x
+- MySQL 8.x (or MariaDB 10.4+)
+- Node.js + npm (only if building frontend assets; not required for API-only use)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## Installation
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```bash
+# 1. Clone the repository (private — access required)
+git clone <repo-url>
+cd cdp-hrms-api
 
-## Security Vulnerabilities
+# 2. Install PHP dependencies
+composer install
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+# 3. Create environment file and generate app key
+cp .env.example .env
+php artisan key:generate
 
-## License
+# 4. Configure .env — set database credentials (see next section)
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# 5. Run migrations (+ seeders if available)
+php artisan migrate --seed
+
+# 6. Start the development server
+php artisan serve
+```
+
+API will be available at `http://localhost:8000/api/v1`.
+
+---
+
+## Environment Variables
+
+Configure these in `.env` (never commit `.env`):
+
+| Key | Purpose | Example |
+|-----|---------|---------|
+| `APP_URL` | Base URL of the API | `http://localhost:8000` |
+| `DB_HOST` / `DB_PORT` | Database host/port | `127.0.0.1` / `3306` |
+| `DB_DATABASE` | Database name | `cdp_hrms` |
+| `DB_USERNAME` / `DB_PASSWORD` | Database credentials | — |
+| `JWT_SECRET` | JWT signing secret (auto-generated by `key:generate`) | — |
+| `JWT_TTL` / `JWT_REFRESH_TTL` | Token lifetime (see `config/jwt.php`) | — |
+| Fingerprint device settings | Device URL/token/webhook secret | `config/fingerprint.php` |
+| Mail driver + SMTP | Email notifications | `config/mail.php` |
+| `FRONTEND_URL` | Web app URL used in emails/links | `https://hrms.example.com` |
+| Google OAuth | Socialite client ID/secret | `config/services.php` |
+
+> ⚠️ Real credentials live only in `.env` (git-ignored). Never paste secrets into code, docs, or commits.
+
+---
+
+## Authentication
+
+All protected endpoints require a JWT bearer token.
+
+```http
+POST /api/v1/login
+Content-Type: application/json
+
+{ "email": "user@example.com", "password": "••••••" }
+```
+
+Response contains the token. Subsequent requests:
+
+```http
+GET /api/v1/employees
+Authorization: Bearer <token>
+```
+
+- Access is gated by Spatie permissions (e.g. `permission:Attendance Create`) applied per route in controllers.
+- Public endpoints (login, forgot-password, backdated attendance, employee QR verification) work without a token.
+
+---
+
+## API Conventions
+
+**Base URL:** `{APP_URL}/api/v1`
+
+**Success response:**
+
+```json
+{
+  "status": "success",
+  "message": "Operation completed successfully",
+  "data": {}
+}
+```
+
+**Error response:**
+
+```json
+{
+  "status": "error",
+  "message": "Something went wrong"
+}
+```
+
+Validation errors return `422` with field-level details.
+
+### Endpoint groups (module overview)
+
+| Route prefix | Module |
+|--------------|--------|
+| `login`, `logout`, `me`, `password/*` | Authentication |
+| `permissions`, `roles` | Roles & permissions |
+| `employees`, `departments`, `designations`, `branches`, `designations` | Employee & org structure |
+| `provinces`, `regions`, `zonals` | Geography / territories |
+| `attendances/*`, `attendance-settings/*` | Attendance, reports, rules |
+| `backdated-attendances/*` | ⚠️ Public manual attendance entry (clock-in/out/edit) |
+| `fingerprint/*`, `fingerprint-webhook` | Fingerprint device integration |
+| `leaves`, `leave-balances`, `leave-types` | Leave management |
+| `payroll/*`, `payroll-settings/*`, `employee-salaries/*` | Payroll |
+| `epf-reports`, `etf-reports`, `cus-reports` | Statutory reports |
+| `loans` | Loans |
+| `letters` | Letter generation |
+| `notifications/*` | Notifications |
+| `holidays` | Holidays |
+| `banks`, `purpose-codes` | Bank & purpose code setup |
+| `imports/*` | Bulk data import |
+| `geofences`, `allowed-locations`, `open-locations` | Geofencing |
+| `activity-logs` | Audit trail |
+
+> ⚠️ `backdated-attendances/*` endpoints are intentionally public for manual data entry — monitor usage via IP activity logs and restrict at the network layer if exposed to the internet.
+
+---
+
+## Scheduled Tasks
+
+Defined in `routes/console.php` — run via Laravel scheduler (cron / Windows Task Scheduler):
+
+| Command | Schedule | Purpose |
+|---------|----------|---------|
+| `notifications:birthdays` | Daily 08:01 | Birthday emails |
+| `notifications:anniversaries` | Daily 08:02 | Work-anniversary emails |
+| `attendance:expire-sessions` | Hourly at :01 | Close sessions left open past office end + 1h |
+| `attendance:mark-absent` | Daily 21:01 | Auto-mark absent (only if `auto_mark_absent` setting enabled) |
+
+Example cron entry (every minute):
+
+```cron
+* * * * * cd /path-to-project && php artisan schedule:run >> /dev/null 2>&1
+```
+
+---
+
+## Fingerprint Devices
+
+- **Webhook:** devices push punches to the fingerprint webhook endpoint (HMAC signature verified) — processed by `FingerprintSDKService`.
+- **Sync:** pull device logs via `/fingerprint/sync-attendance` and map them to HRMS attendance records (computes working hours + late status).
+- **Manual punch:** `/fingerprint/manual-attendance` for admin-entered clock-in/out.
+- Device credentials and office start/grace settings live in `config/fingerprint.php`.
+
+---
+
+## Database
+
+- **98 migrations** in `database/migrations`.
+- Core tables: `users`, `employees`, `attendances`, `attendance_settings`, `attendance_update_requests`, `leaves`, `leave_balances`, `payroll_records`, `payroll_months`, `geofences`, `notifications`, `activity_logs`.
+- Reset (development only):
+
+```bash
+php artisan migrate:fresh --seed
+```
+
+---
+
+## Testing
+
+```bash
+composer test
+# or
+php artisan test
+```
+
+Powered by Pest.
+
+---
+
+## Project Structure
+
+```
+app/
+├── Http/
+│   ├── Controllers/V1/     # All API controllers (versioned)
+│   ├── Requests/           # Form request validation
+│   └── Middleware/
+├── Models/                 # Eloquent models
+├── Services/               # Business services (fingerprint, session expiry, etc.)
+├── Console/Commands/       # Scheduled artisan commands
+├── Mail/                   # Notification emails
+database/
+├── migrations/             # Schema
+├── seeders/                # Default data
+routes/
+├── api.php                 # Entry — includes v1.php
+├── v1.php                  # All versioned API routes
+└── console.php             # Scheduler
+config/
+├── jwt.php, fingerprint.php, permission.php, ...
+```
+
+---
+
+## Security Notes
+
+- This is a **private repository** — never make it public or fork it externally.
+- `.env` is git-ignored; never commit secrets, API keys, or production credentials.
+- JWT tokens expire — use the refresh flow for long-lived sessions.
+- Permission middleware must be applied to any new sensitive endpoints.
+- Public endpoints must log IP addresses for auditability.
+
+---
+
+> **🔒 CONFIDENTIAL — PROPRIETARY SOFTWARE**
+> This repository and its contents are confidential and proprietary.
+> For internal use only. Do not copy, distribute, publish, or share
+> outside the authorized team — including source code, API docs, or credentials.
