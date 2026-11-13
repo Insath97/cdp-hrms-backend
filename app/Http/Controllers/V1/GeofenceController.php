@@ -92,6 +92,20 @@ class GeofenceController extends Controller implements HasMiddleware
 
         $geofence->users()->sync($pivotData);
 
+        // `user_allowed_locations` is what attendance clock-in actually checks,
+        // so mirror the assignment there as well.
+        $userIds = $users->pluck('id')->all();
+        \App\Models\UserAllowedLocation::where('geofence_id', $geofence->id)
+            ->whereNotIn('user_id', $userIds)
+            ->delete();
+
+        foreach ($users as $user) {
+            \App\Models\UserAllowedLocation::firstOrCreate(
+                ['user_id' => $user->id, 'geofence_id' => $geofence->id],
+                ['is_active' => true]
+            );
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Users assigned to geofence successfully',
@@ -103,18 +117,40 @@ class GeofenceController extends Controller implements HasMiddleware
     {
         return response()->json([
             'status' => 'success',
-            'data' => $user->geofences,
+            'data' => $this->allowedGeofencesFor($user),
         ]);
     }
 
     public function myGeofences()
     {
-        $user = Auth::user();
-
         return response()->json([
             'status' => 'success',
-            'data' => $user->geofences,
+            'data' => $this->allowedGeofencesFor(Auth::user()),
         ]);
+    }
+
+    /**
+     * Geofences the user may actually clock in from.
+     *
+     * `user_allowed_locations` is the source of truth used by the attendance
+     * clock-in check and by the Geofence Management screen. The legacy
+     * `geofence_user` pivot is not updated there, so reading the pivot made
+     * removed locations appear again in the Employee module.
+     */
+    private function allowedGeofencesFor(?User $user)
+    {
+        if (! $user) {
+            return collect();
+        }
+
+        return $user->allowedLocations()
+            ->where('is_active', true)
+            ->with('geofence')
+            ->get()
+            ->pluck('geofence')
+            ->filter(fn ($geofence) => $geofence !== null)
+            ->unique('id')
+            ->values();
     }
 
     public static function checkCoordinates($latitude, $longitude, $user = null)
@@ -122,7 +158,12 @@ class GeofenceController extends Controller implements HasMiddleware
         $user = $user ?? Auth::user();
         if (! $user) return false;
 
-        $geofences = $user->geofences()->where('is_active', true)->get();
+        $geofences = $user->allowedLocations()
+            ->where('is_active', true)
+            ->with('geofence')
+            ->get()
+            ->pluck('geofence')
+            ->filter(fn ($geofence) => $geofence !== null && $geofence->is_active);
 
         foreach ($geofences as $geofence) {
             $distance = self::haversineDistance(

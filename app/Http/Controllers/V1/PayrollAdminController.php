@@ -14,6 +14,7 @@ use App\Services\LoanDeductionService;
 use App\Services\PayrollActivationService;
 use App\Services\PayrollSettingsService;
 use App\Services\SriLankanTaxService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
@@ -740,9 +741,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
         try {
             $request->validate([
                 'month' => 'required|string',
+                'new_recruits' => 'sometimes|boolean',
             ]);
 
             $month = $request->month;
+            $newRecruitsOnly = filter_var($request->input('new_recruits', false), FILTER_VALIDATE_BOOLEAN);
 
             if (! PayrollActivationService::canView($month, Auth::user())) {
                 return response()->json([
@@ -755,6 +758,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 ->join('users as pu', 'pu.id', '=', 'payroll_records.user_id')
                 ->join('employees as pe', 'pe.id', '=', 'pu.employee_id')
                 ->where('payroll_records.month', $month)
+                ->when($newRecruitsOnly, function ($query) use ($month) {
+                    $period = Carbon::parse($month);
+                    $query->whereYear('pe.joined_at', $period->year)
+                        ->whereMonth('pe.joined_at', $period->month);
+                })
                 ->select('payroll_records.*')
                 ->orderByRaw("(CASE WHEN pe.employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(pe.employee_code, '[0-9]+') AS UNSIGNED) ASC, pe.employee_code ASC")
                 ->orderByRaw("FIELD(payroll_records.pay_day, 'basic', 'commission', 'allowance')")
@@ -769,6 +777,8 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'total_deductions' => 0,
                 'final_net' => 0,
             ];
+            $summaryDeductionTotals = [];
+            $monthPrefix = Carbon::parse($month)->format('Y-m');
 
             foreach ($records->groupBy('user_id') as $userId => $userRecords) {
                 $rec = $userRecords->first();
@@ -778,6 +788,13 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 $basic = $byDay->get('basic');
                 $commission = $byDay->get('commission');
                 $allowance = $byDay->get('allowance');
+
+                $rowDeductionBreakdown = $this->buildDeductionBreakdown($userRecords->all());
+                $rowDeductionItems = $this->toDeductionItems($rowDeductionBreakdown);
+
+                $basicDeductionBreakdown = $this->buildDeductionBreakdown([$basic]);
+                $incentiveDeductionBreakdown = $this->buildDeductionBreakdown([$commission]);
+                $allowanceDeductionBreakdown = $this->buildDeductionBreakdown([$allowance]);
 
                 $basicGross = $basic?->how_much_paid ?? 0;
                 $incentiveGross = $commission?->how_much_paid ?? 0;
@@ -798,6 +815,15 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 $summary['total_deductions'] += $deductions;
                 $summary['final_net'] += $net;
 
+                foreach ($rowDeductionBreakdown as $item) {
+                    $key = $item['key'];
+                    if (! isset($summaryDeductionTotals[$key])) {
+                        $summaryDeductionTotals[$key] = $item;
+                    } else {
+                        $summaryDeductionTotals[$key]['amount'] = round($summaryDeductionTotals[$key]['amount'] + $item['amount'], 2);
+                    }
+                }
+
                 $rows[] = [
                     'user_id' => $userId,
                     'employee_code' => $employee?->employee_code ?? $rec->user?->employee_id,
@@ -805,26 +831,38 @@ class PayrollAdminController extends Controller implements HasMiddleware
                     'department' => $employee?->department?->name ?? $rec->user?->employee?->department?->name,
                     'designation' => $employee?->designation?->name ?? $rec->user?->employee?->designation?->name,
                     'employee_type' => $employee?->employee_type ?? null,
+                    'joined_at' => $employee?->joined_at,
+                    'is_new_recruit' => $employee?->joined_at
+                        ? str_starts_with((string) $employee->joined_at, $monthPrefix)
+                        : false,
                     'basic' => [
                         'gross' => round((float) $basicGross, 2),
                         'deductions' => round((float) ($basic?->total_deductions ?? 0), 2),
+                        'deductions_breakdown' => $basicDeductionBreakdown,
+                        'deduction_items' => $this->toDeductionItems($basicDeductionBreakdown),
                         'net' => round((float) ($basic?->net ?? 0), 2),
                         'status' => $basic?->status,
                     ],
                     'incentive' => [
                         'gross' => round((float) $incentiveGross, 2),
                         'deductions' => round((float) ($commission?->total_deductions ?? 0), 2),
+                        'deductions_breakdown' => $incentiveDeductionBreakdown,
+                        'deduction_items' => $this->toDeductionItems($incentiveDeductionBreakdown),
                         'net' => round((float) ($commission?->net ?? 0), 2),
                         'status' => $commission?->status,
                     ],
                     'allowance' => [
                         'gross' => round((float) $allowanceGross, 2),
                         'deductions' => round((float) ($allowance?->total_deductions ?? 0), 2),
+                        'deductions_breakdown' => $allowanceDeductionBreakdown,
+                        'deduction_items' => $this->toDeductionItems($allowanceDeductionBreakdown),
                         'net' => round((float) ($allowance?->net ?? 0), 2),
                         'status' => $allowance?->status,
                     ],
                     'gross' => round($gross, 2),
                     'deductions' => round($deductions, 2),
+                    'deductions_breakdown' => $rowDeductionBreakdown,
+                    'deduction_items' => $rowDeductionItems,
                     'final_net' => round($net, 2),
                 ];
             }
@@ -834,7 +872,11 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'message' => 'Payroll report retrieved successfully',
                 'data' => [
                     'month' => $month,
+                    'new_recruits' => $newRecruitsOnly,
                     'summary' => array_map(fn ($v) => round((float) $v, 2), $summary),
+                    'deduction_totals' => array_map(function (array $item) {
+                        return array_merge($item, $this->toDeductionItems([$item])[0]);
+                    }, array_values($summaryDeductionTotals)),
                     'rows' => $rows,
                 ],
             ]);
@@ -851,6 +893,85 @@ class PayrollAdminController extends Controller implements HasMiddleware
                 'message' => 'Failed to retrieve payroll report: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Named breakdown of the deductions stored on one or more payroll records.
+     *
+     * @param  array<int, PayrollRecord|null>  $records
+     * @return array<int, array{key: string, name: string, amount: float}>
+     */
+    private function buildDeductionBreakdown(array $records): array
+    {
+        $labels = [
+            'epf_employee' => 'EPF (Employee 8%)',
+            'paye_tax' => 'PAYE Income Tax',
+            'wht_tax' => 'WHT (Withholding Tax 5%)',
+            'apiit_tax' => 'APIT (Advance Income Tax)',
+            'stamp_fee' => 'Stamp Fee',
+            'recover_amount' => 'Recover Amount (CDP)',
+            'loan_deductions' => 'Loan Installments',
+            'advance_deductions' => 'Salary Advances',
+        ];
+
+        $totals = [];
+
+        foreach ($records as $record) {
+            if (! $record) {
+                continue;
+            }
+
+            foreach ($labels as $field => $name) {
+                $amount = (float) ($record->{$field} ?? 0);
+
+                if ($amount <= 0) {
+                    continue;
+                }
+
+                if (! isset($totals[$field])) {
+                    $totals[$field] = [
+                        'key' => $field,
+                        'name' => $name,
+                        'amount' => 0.0,
+                    ];
+                }
+
+                $totals[$field]['amount'] += $amount;
+            }
+        }
+
+        return array_values(array_map(function (array $item) {
+            $item['amount'] = round($item['amount'], 2);
+
+            return $item;
+        }, $totals));
+    }
+
+    /**
+     * Shape the named breakdown the way the Payroll Report UI consumes it.
+     *
+     * @param  array<int, array{key: string, name: string, amount: float}>  $breakdown
+     * @return array<int, array{id: int, type: string, label: string, amount: float}>
+     */
+    private function toDeductionItems(array $breakdown): array
+    {
+        $ids = [
+            'epf_employee' => -1,
+            'paye_tax' => -2,
+            'wht_tax' => -3,
+            'apiit_tax' => -4,
+            'stamp_fee' => -5,
+            'recover_amount' => -6,
+            'loan_deductions' => -7,
+            'advance_deductions' => -8,
+        ];
+
+        return array_map(fn (array $item) => [
+            'id' => $ids[$item['key']] ?? 0,
+            'type' => $item['key'],
+            'label' => $item['name'],
+            'amount' => $item['amount'],
+        ], $breakdown);
     }
 
     /**

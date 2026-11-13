@@ -220,30 +220,14 @@ class AttendanceController extends Controller implements HasMiddleware
 
                 $userForCheck = $targetUser ?? $authUser;
 
-                // Open-location members may clock in from anywhere (location optional).
-                if ($userForCheck?->hasOpenLocationAccess()) {
-                    if ($latitude !== null && $longitude !== null) {
-                        $data['in_latitude'] = $latitude;
-                        $data['in_longitude'] = $longitude;
-                    }
-                    $data['in_geofence_name'] = OpenLocationMember::LABEL;
-                } else {
-                    if ($latitude === null || $longitude === null) {
-                        return response()->json([
-                            'status' => 'error',
-                            'message' => 'Your location could not be verified. Please enable location services to clock in.',
-                        ], 403);
-                    }
+                $hasOpenLocation = (bool) $userForCheck?->hasOpenLocationAccess();
+                $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
+                $hasAllowedLocations = $allowedLocations && !$allowedLocations->isEmpty();
 
-                    $allowedLocations = $userForCheck?->allowedLocations()->where('is_active', true)->with('geofence')->get();
+                $matchedGeofenceName = null;
 
-                    if (!$allowedLocations || $allowedLocations->isEmpty()) {
-                        return response()->json([
-                            'status' => 'error',
-                            'message' => 'No allowed locations assigned. Please contact your administrator.',
-                        ], 403);
-                    }
-
+                // 1. First check whether user is within an allowed location
+                if ($hasAllowedLocations && $latitude !== null && $longitude !== null) {
                     foreach ($allowedLocations as $loc) {
                         $gf = $loc->geofence;
                         if (!$gf || !$gf->is_active) continue;
@@ -254,14 +238,42 @@ class AttendanceController extends Controller implements HasMiddleware
                             (float) $gf->longitude
                         );
                         if ($dist <= (float) $gf->radius_meters) {
+                            $matchedGeofenceName = $gf->name;
                             $data['in_latitude'] = $latitude;
                             $data['in_longitude'] = $longitude;
                             $data['in_geofence_name'] = $gf->name;
                             break;
                         }
                     }
+                }
 
-                    if (!isset($data['in_geofence_name'])) {
+                // 2. If not inside allowed locations, check for open location access
+                if (!$matchedGeofenceName) {
+                    if ($hasOpenLocation) {
+                        if ($latitude !== null && $longitude !== null) {
+                            $data['in_latitude'] = $latitude;
+                            $data['in_longitude'] = $longitude;
+                        }
+                        $data['in_geofence_name'] = OpenLocationMember::LABEL;
+                    } else {
+                        // 3. Neither inside an allowed location nor has open location access:
+                        // If no allowed locations assigned at all -> "contact admin"
+                        if (!$hasAllowedLocations) {
+                            return response()->json([
+                                'status' => 'error',
+                                'message' => 'No allowed locations assigned. Please contact your administrator.',
+                            ], 403);
+                        }
+
+                        // If allowed locations exist, but coordinates could not be verified
+                        if ($latitude === null || $longitude === null) {
+                            return response()->json([
+                                'status' => 'error',
+                                'message' => 'Your location could not be verified. Please enable location services to clock in.',
+                            ], 403);
+                        }
+
+                        // If allowed locations exist, but user is away from them
                         return response()->json([
                             'status' => 'error',
                             'message' => 'You are outside your allowed locations. Please move to an approved area.',
@@ -630,30 +642,14 @@ class AttendanceController extends Controller implements HasMiddleware
             $latitude = $request->input('latitude');
             $longitude = $request->input('longitude');
 
-            // Open-location members may clock out from anywhere (location optional).
-            if ($user->hasOpenLocationAccess()) {
-                if ($latitude !== null && $longitude !== null) {
-                    $attendance->out_latitude = $latitude;
-                    $attendance->out_longitude = $longitude;
-                }
-                $attendance->out_geofence_name = OpenLocationMember::LABEL;
-            } else {
-                if ($latitude === null || $longitude === null) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'Your location could not be verified. Please enable location services to clock out.',
-                    ], 403);
-                }
+            $hasOpenLocation = (bool) $user->hasOpenLocationAccess();
+            $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
+            $hasAllowedLocations = $allowedLocations && !$allowedLocations->isEmpty();
 
-                $allowedLocations = $user->allowedLocations()->where('is_active', true)->with('geofence')->get();
+            $matchedGeofenceName = null;
 
-                if ($allowedLocations->isEmpty()) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'No allowed locations assigned. Please contact your administrator.',
-                    ], 403);
-                }
-
+            // 1. First check whether user is within an allowed location
+            if ($hasAllowedLocations && $latitude !== null && $longitude !== null) {
                 foreach ($allowedLocations as $loc) {
                     $gf = $loc->geofence;
                     if (!$gf || !$gf->is_active) continue;
@@ -664,14 +660,42 @@ class AttendanceController extends Controller implements HasMiddleware
                         (float) $gf->longitude
                     );
                     if ($dist <= (float) $gf->radius_meters) {
+                        $matchedGeofenceName = $gf->name;
                         $attendance->out_latitude = $latitude;
                         $attendance->out_longitude = $longitude;
                         $attendance->out_geofence_name = $gf->name;
                         break;
                     }
                 }
+            }
 
-                if (!$attendance->out_geofence_name) {
+            // 2. If not inside allowed locations, check for open location access
+            if (!$matchedGeofenceName) {
+                if ($hasOpenLocation) {
+                    if ($latitude !== null && $longitude !== null) {
+                        $attendance->out_latitude = $latitude;
+                        $attendance->out_longitude = $longitude;
+                    }
+                    $attendance->out_geofence_name = OpenLocationMember::LABEL;
+                } else {
+                    // 3. Neither inside an allowed location nor has open location access:
+                    // If no allowed locations assigned at all -> "contact admin"
+                    if (!$hasAllowedLocations) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'No allowed locations assigned. Please contact your administrator.',
+                        ], 403);
+                    }
+
+                    // If allowed locations exist, but coordinates could not be verified
+                    if ($latitude === null || $longitude === null) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => 'Your location could not be verified. Please enable location services to clock out.',
+                        ], 403);
+                    }
+
+                    // If allowed locations exist, but user is away from them
                     return response()->json([
                         'status' => 'error',
                         'message' => 'You are outside your allowed locations. Please move to an approved area to clock out.',
