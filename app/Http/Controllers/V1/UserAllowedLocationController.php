@@ -72,9 +72,37 @@ class UserAllowedLocationController extends Controller implements HasMiddleware
         ]);
     }
 
-    public function destroy(UserAllowedLocation $userAllowedLocation)
+    public function destroy($userAllowedLocation)
     {
-        $userAllowedLocation->delete();
+        // Route bound manually (not via implicit model binding) so removing a
+        // location that was already deleted - e.g. from a stale list or a
+        // double click - succeeds instead of throwing a 404.
+        $location = UserAllowedLocation::find($userAllowedLocation);
+
+        if (! $location) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Allowed location already removed',
+            ]);
+        }
+
+        $user = $location->user;
+        $geofenceId = $location->geofence_id;
+
+        $location->delete();
+
+        // Keep the legacy geofence_user pivot in sync so any older code path
+        // does not report this location as still assigned.
+        if ($user) {
+            $stillAllowed = $user->allowedLocations()
+                ->where('geofence_id', $geofenceId)
+                ->where('is_active', true)
+                ->exists();
+
+            if (! $stillAllowed) {
+                $user->geofences()->detach($geofenceId);
+            }
+        }
 
         return response()->json([
             'status' => 'success',
@@ -168,7 +196,21 @@ class UserAllowedLocationController extends Controller implements HasMiddleware
             ->with('geofence')
             ->get();
 
+        $hasOpenLocation = (bool) $user->hasOpenLocationAccess();
+
         if ($allowedLocations->isEmpty()) {
+            if ($hasOpenLocation) {
+                return response()->json([
+                    'status' => 'success',
+                    'within_allowed' => true,
+                    'message' => 'Open location access active.',
+                    'location' => [
+                        'id' => null,
+                        'name' => 'Open Location',
+                    ],
+                ]);
+            }
+
             return response()->json([
                 'status' => 'success',
                 'within_allowed' => false,
@@ -211,10 +253,22 @@ class UserAllowedLocationController extends Controller implements HasMiddleware
             }
         }
 
+        if ($hasOpenLocation) {
+            return response()->json([
+                'status' => 'success',
+                'within_allowed' => true,
+                'message' => 'Outside assigned locations, but open location access is active.',
+                'location' => [
+                    'id' => null,
+                    'name' => 'Open Location',
+                ],
+            ]);
+        }
+
         return response()->json([
             'status' => 'success',
             'within_allowed' => false,
-            'message' => 'Outside allowed locations. Closest "' . ($closestName ?? 'N/A') . '" is ' . round($closestDistance) . 'm away (radius: ' . ($closestRadius ?? 'N/A') . 'm).',
+            'message' => 'You are outside your allowed locations. Please move to an approved area.',
             'location' => null,
             'debug' => [
                 'closest_distance_meters' => round($closestDistance),

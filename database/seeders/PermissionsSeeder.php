@@ -147,6 +147,17 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Geofence Manage', 'group_name' => 'Geofence Management Permissions'],
             ['name' => 'Open Location Manage', 'group_name' => 'Geofence Management Permissions'],
 
+            /* Notification Permissions: which roles receive each kind of group notification */
+            ['name' => 'Notification Password Change Request', 'group_name' => 'Notification Permissions'],
+            ['name' => 'Notification Leave Request', 'group_name' => 'Notification Permissions'],
+            ['name' => 'Notification Attendance Correction', 'group_name' => 'Notification Permissions'],
+            ['name' => 'Notification Payroll Request', 'group_name' => 'Notification Permissions'],
+            ['name' => 'Notification Open Location Request', 'group_name' => 'Notification Permissions'],
+
+            /* Password change request actions */
+            ['name' => 'Password Change Request Approve', 'group_name' => 'Password Change Request Permissions'],
+            ['name' => 'Password Change Request Reject', 'group_name' => 'Password Change Request Permissions'],
+
             /* Bank & Purpose Code Management (CUS salary upload) */
             ['name' => 'Bank Index', 'group_name' => 'Bank Management Permissions'],
             ['name' => 'Bank Create', 'group_name' => 'Bank Management Permissions'],
