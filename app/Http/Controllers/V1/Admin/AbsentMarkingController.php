@@ -142,14 +142,15 @@ class AbsentMarkingController extends Controller
                     $balanceKey,
                     [
                         'user_id'    => $user->id,
+                        'entitled'   => $leaveType->default_allocation,
                         'allocated'  => $leaveType->default_allocation,
                         'used'       => 0,
                         'balance'    => $leaveType->default_allocation,
                     ]
                 );
 
-                $balance->used    += 1;
-                $balance->balance  = $balance->allocated - $balance->used;
+                $balance->used    = (float) $balance->used + 1;
+                $balance->balance = round((float) $balance->allocated - (float) $balance->used, 2);
                 $balance->save();
 
                 $markedCount++;

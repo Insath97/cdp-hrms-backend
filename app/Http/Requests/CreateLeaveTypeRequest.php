@@ -26,6 +26,7 @@ class CreateLeaveTypeRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'code' => 'required|string|unique:leave_types,code|max:50',
+            'category' => 'sometimes|in:annual,casual,other',
             'calculation_unit' => 'required|in:days,hours',
             'default_allocation' => 'required|numeric|min:0',
             'color_code' => 'nullable|string|max:20',

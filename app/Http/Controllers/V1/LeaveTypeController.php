@@ -73,6 +73,7 @@ class LeaveTypeController extends Controller implements HasMiddleware
     {
         try {
             $data = $request->validated();
+            $data['category'] = $data['category'] ?? 'other';
             $leaveType = LeaveType::create($data);
 
             $this->logActivity('CREATE', 'LeaveType', "Created leave type: {$leaveType->name}", $data);
@@ -224,7 +225,7 @@ class LeaveTypeController extends Controller implements HasMiddleware
             }
 
             $leaveType->is_active = !$leaveType->is_active;
-            $zonal = $leaveType->save(); // Note: variable zonal name is present but let's keep it safe. Actually it's $leaveType->save();
+            $leaveType->save();
 
             $statusStr = $leaveType->is_active ? 'Activated' : 'Deactivated';
             $this->logActivity('TOGGLE_STATUS', 'LeaveType', "{$statusStr} leave type: {$leaveType->name}");
@@ -256,7 +257,7 @@ class LeaveTypeController extends Controller implements HasMiddleware
     {
         try {
             $leaveTypes = LeaveType::where('is_active', true)
-                ->select('id', 'name', 'code', 'calculation_unit', 'default_allocation')
+                ->select('id', 'name', 'code', 'category', 'calculation_unit', 'default_allocation')
                 ->orderBy('name', 'asc')
                 ->get();
 

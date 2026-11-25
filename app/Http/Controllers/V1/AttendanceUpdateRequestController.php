@@ -205,8 +205,8 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
                     ->where('year', Carbon::parse($attendanceDate)->year)
                     ->first();
                 if ($balance) {
-                    $balance->used = max(0, $balance->used - 1);
-                    $balance->balance = min($balance->allocated, $balance->balance + 1);
+                    $balance->used = max(0, (float) $balance->used - 1);
+                    $balance->balance = round((float) $balance->allocated - (float) $balance->used, 2);
                     $balance->save();
                 }
                 $autoLeave->delete();

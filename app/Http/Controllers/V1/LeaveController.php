@@ -7,6 +7,7 @@ use App\Http\Requests\CreateLeaveRequest;
 use App\Http\Requests\UpdateLeaveRequest;
 use App\Models\Leave;
 use App\Models\Employee;
+use App\Services\LeaveEntitlementService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -299,7 +300,7 @@ class LeaveController extends Controller implements HasMiddleware
         }
     }
 
-    public function approve(Request $request, string $id)
+    public function approve(Request $request, string $id, LeaveEntitlementService $entitlementService)
     {
         try {
             $leave = Leave::find($id);
@@ -333,58 +334,71 @@ class LeaveController extends Controller implements HasMiddleware
             if ($leave->employee_id || $leave->user_id) {
                 $fromDate = \Carbon\Carbon::parse($leave->from_date);
                 $toDate = \Carbon\Carbon::parse($leave->to_date);
-                
+
                 $days = 0;
                 $current = $fromDate->copy();
                 while ($current <= $toDate) {
-                    // Only count if it's not a holiday
                     if (!\App\Models\Holiday::isHoliday($current)) {
                         $days++;
                     }
                     $current->addDay();
                 }
 
-                if ($days === 0) {
-                    // If all days are holidays, maybe don't deduct anything or return early?
-                    // Usually the frontend should prevent this, but we'll set it to 0.
-                }
-
                 $leaveType = \App\Models\LeaveType::find($leave->leave_type_id);
-                $deduction = $days;
-                
+                $deduction = (float) $days;
+
                 if ($leaveType) {
-                    if (stripos($leaveType->calculation_unit, 'half') !== false) {
+                    $unit = strtolower((string) $leaveType->calculation_unit);
+                    $name = strtolower((string) $leaveType->name);
+
+                    if (str_contains($unit, 'half')) {
                         $deduction = $days * 0.5;
-                    } elseif (stripos($leaveType->calculation_unit, 'hour') !== false || stripos($leaveType->name, 'short') !== false) {
-                        $deduction = $days * 0.25; // Assumption for short leave
+                    } elseif (str_contains($unit, 'hour')) {
+                        // Short leave: 1.5 hours per leave instance/day; other hour-based types default to 1 hour per day
+                        $hoursPerDay = str_contains($name, 'short') ? 1.5 : 1.0;
+                        $deduction = $days * $hoursPerDay;
+                    } elseif (str_contains($name, 'short')) {
+                        // Fallback if a short-leave type is configured in days/count units
+                        $deduction = (float) $days;
                     }
                 }
 
-                $balanceMatch = [
-                    'leave_type_id' => $leave->leave_type_id,
-                    'year' => date('Y')
-                ];
+                $year = (int) $fromDate->year;
+                $balance = null;
                 if ($leave->employee_id) {
-                    $balanceMatch['employee_id'] = $leave->employee_id;
-                } else {
-                    $balanceMatch['user_id'] = $leave->user_id;
+                    $employee = Employee::with('user')->find($leave->employee_id);
+                    if ($employee && $leaveType) {
+                        $balance = $entitlementService->syncBalance($employee, $leaveType, $year);
+                    }
                 }
 
-                $balance = \App\Models\LeaveBalance::firstOrCreate(
-                    $balanceMatch,
-                    [
-                        'allocated' => $leaveType ? $leaveType->default_allocation : 0,
-                        'used' => 0,
-                        'balance' => $leaveType ? $leaveType->default_allocation : 0
-                    ]
-                );
+                if (!$balance) {
+                    $balanceMatch = [
+                        'leave_type_id' => $leave->leave_type_id,
+                        'year' => $year,
+                    ];
+                    if ($leave->employee_id) {
+                        $balanceMatch['employee_id'] = $leave->employee_id;
+                    } else {
+                        $balanceMatch['user_id'] = $leave->user_id;
+                    }
+                    $balance = \App\Models\LeaveBalance::firstOrCreate(
+                        $balanceMatch,
+                        [
+                            'entitled' => $leaveType ? (float) $leaveType->default_allocation : 0,
+                            'allocated' => $leaveType ? (float) $leaveType->default_allocation : 0,
+                            'used' => 0,
+                            'balance' => $leaveType ? (float) $leaveType->default_allocation : 0,
+                        ]
+                    );
+                }
 
-                $balance->used += $deduction;
-                $balance->balance = $balance->allocated - $balance->used;
+                $balance->used = (float) $balance->used + $deduction;
+                $balance->balance = round((float) $balance->allocated - (float) $balance->used, 2);
                 $balance->save();
 
                 // Update Attendance records to reflect the approved leave
-                $isMedical = stripos($leaveType->name, 'medical') !== false || strtolower($leaveType->code) === 'ml';
+                $isMedical = $leaveType && (stripos($leaveType->name, 'medical') !== false || strtolower((string) $leaveType->code) === 'ml');
                 $statusToApply = $isMedical ? 'medical_leave' : 'leave';
 
                 $currentApproveDate = \Carbon\Carbon::parse($leave->from_date);
