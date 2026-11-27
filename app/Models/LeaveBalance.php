@@ -13,10 +13,20 @@ class LeaveBalance extends Model
         'user_id',
         'employee_id',
         'leave_type_id',
+        'entitled',
         'allocated',
         'used',
         'balance',
         'year',
+        'last_accrued_at',
+    ];
+
+    protected $casts = [
+        'entitled' => 'decimal:2',
+        'allocated' => 'decimal:2',
+        'used' => 'decimal:2',
+        'balance' => 'decimal:2',
+        'last_accrued_at' => 'date:Y-m-d',
     ];
 
     public function user()

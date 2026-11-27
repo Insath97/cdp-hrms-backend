@@ -59,13 +59,13 @@ class AttendanceUpdateRequest extends Model
         return $this->belongsTo(Employee::class, 'manager_id');
     }
 
-    public function approvedBy(): BelongsTo
+    public function approvedByUser(): BelongsTo
     {
-        return $this->belongsTo(Employee::class, 'approved_by');
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
-    public function rejectedBy(): BelongsTo
+    public function rejectedByUser(): BelongsTo
     {
-        return $this->belongsTo(Employee::class, 'rejected_by');
+        return $this->belongsTo(User::class, 'rejected_by');
     }
 }

@@ -122,19 +122,20 @@ class PayrollCalculationService
 
             $howMuchPaid = $basicSalary;
 
-            if ($howMuchPaid > 0) {
-                $basicRecord = $this->upsertRecord(array_merge($common, [
-                    'pay_day'               => self::PAY_BASIC,
-                    'basic'                 => $basicSalary,
-                    'how_much_paid'         => $howMuchPaid,
-                    'epf_employee'          => $epfEmployee,
-                    'epf_employer'          => $epfEmployer,
-                    'etf_employer'          => $etfEmployer,
-                    'apiit_tax'             => 0.0,
-                    'stamp_fee'             => $stamp,
-                    'payment_criteria'      => 'Basic Salary',
-                ]));
-            }
+            // Always persist the 5th record, even when the calculated pay is
+            // zero. Zero-pay employees must still appear in payroll reports
+            // and in the basic-salary reconciliation.
+            $basicRecord = $this->upsertRecord(array_merge($common, [
+                'pay_day'               => self::PAY_BASIC,
+                'basic'                 => $basicSalary,
+                'how_much_paid'         => $howMuchPaid,
+                'epf_employee'          => $epfEmployee,
+                'epf_employer'          => $epfEmployer,
+                'etf_employer'          => $etfEmployer,
+                'apiit_tax'             => 0.0,
+                'stamp_fee'             => $stamp,
+                'payment_criteria'      => 'Basic Salary',
+            ]));
         }
 
         // ── 15th: Commission (sales staff only) ────────────────────────────
@@ -240,17 +241,17 @@ class PayrollCalculationService
                 'how_much_paid'  => $howMuchPaid,
             ]);
 
-            if ($howMuchPaid > 0 || $apiitTax > 0) {
-                $allowanceRecord = $this->upsertRecord(array_merge($common, [
-                    'pay_day'               => self::PAY_ALLOWANCE,
-                    'basic'                 => 0,
-                    'travel_reimbursement'  => $scaledFuel,
-                    'vehicle_rental'        => $scaledVehicle,
-                    'how_much_paid'         => $howMuchPaid,
-                    'apiit_tax'             => $apiitTax,
-                    'payment_criteria'      => 'Allowance Payment',
-                ]));
-            }
+            // Always persist the 20th record too, even at zero, so the
+            // employee is present in the report with all applicable pay days.
+            $allowanceRecord = $this->upsertRecord(array_merge($common, [
+                'pay_day'               => self::PAY_ALLOWANCE,
+                'basic'                 => 0,
+                'travel_reimbursement'  => $scaledFuel,
+                'vehicle_rental'        => $scaledVehicle,
+                'how_much_paid'         => $howMuchPaid,
+                'apiit_tax'             => $apiitTax,
+                'payment_criteria'      => 'Allowance Payment',
+            ]));
         } else {
             // basic + fuel + vehicle allowance (no EPF, no APIIT)
             // For non-permanent sales staff, all components (basic, fuel, vehicle) depend on achievement.

@@ -12,6 +12,7 @@ class LeaveType extends Model
     protected $fillable = [
         'name',
         'code',
+        'category',
         'calculation_unit',
         'default_allocation',
         'color_code',
@@ -37,5 +38,10 @@ class LeaveType extends Model
     {
         return $query->where('name', 'like', "%{$search}%")
             ->orWhere('code', 'like', "%{$search}%");
+    }
+
+    public function isPolicyDriven(): bool
+    {
+        return in_array($this->category, ['annual', 'casual'], true);
     }
 }

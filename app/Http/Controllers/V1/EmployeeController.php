@@ -486,7 +486,35 @@ class EmployeeController extends Controller implements HasMiddleware
                 $data['profile_image'] = $this->handleFileUpload($request, 'profile_image', $employee->profile_image, 'employees', $employee->employee_code.'_profile');
             }
 
+            $joinedAtChanged = array_key_exists('joined_at', $data)
+                && (string) $employee->getRawOriginal('joined_at') !== (string) ($data['joined_at'] ?? '');
+
             $employee->update($data);
+
+            // Re-sync leave balances when join date changes (policy-driven entitlements depend on it)
+            if ($joinedAtChanged) {
+                try {
+                    $entitlementService = app(\App\Services\LeaveEntitlementService::class);
+                    $employee->loadMissing('user');
+                    $years = \App\Models\LeaveBalance::where('employee_id', $employee->id)
+                        ->distinct()
+                        ->pluck('year')
+                        ->map(fn ($y) => (int) $y)
+                        ->all();
+                    $currentYear = (int) now()->year;
+                    if (!in_array($currentYear, $years, true)) {
+                        $years[] = $currentYear;
+                    }
+                    foreach ($years as $year) {
+                        $entitlementService->syncEmployeeYear($employee, $year);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to resync leave balances after joined_at change', [
+                        'employee_id' => $employee->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             // Upsert salary details — archive current and create new record
             if (! empty($salaryData)) {

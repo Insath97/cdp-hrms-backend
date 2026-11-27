@@ -27,6 +27,7 @@ class UpdateLeaveTypeRequest extends FormRequest
         return [
             'name' => 'sometimes|string|max:255',
             'code' => 'sometimes|string|max:50|unique:leave_types,code,' . $id,
+            'category' => 'sometimes|in:annual,casual,other',
             'calculation_unit' => 'sometimes|in:days,hours',
             'default_allocation' => 'sometimes|numeric|min:0',
             'color_code' => 'nullable|string|max:20',

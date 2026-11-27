@@ -42,7 +42,7 @@ class PayrollAdminController extends Controller implements HasMiddleware
             new Middleware('permission:Payroll Process', only: ['processPayroll', 'processPayrollBatchStatus']),
             new Middleware('permission:Payroll Activate|Payroll View All', only: ['getMonthStatus']),
             new Middleware('permission:Payroll Activate', only: ['activateMonth', 'lockMonth']),
-            new Middleware('permission:Payroll View All|Payroll Activate', only: ['payrollReport']),
+            new Middleware('permission:Payroll View All|Payroll Activate', only: ['payrollReport', 'reconciliationReport']),
         ];
     }
 
@@ -891,6 +891,150 @@ class PayrollAdminController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve payroll report: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Compare the basic salary paid in one month with another month,
+     * restricted to permanent employees.
+     */
+    public function reconciliationReport(Request $request)
+    {
+        try {
+            $request->validate([
+                'month' => 'required|string',
+                'previous_month' => 'sometimes|string',
+            ]);
+
+            $month = $request->month;
+            $previousMonth = $request->filled('previous_month')
+                ? $request->input('previous_month')
+                : Carbon::parse($month)->copy()->subMonth()->format('Y-m');
+
+            foreach ([$month, $previousMonth] as $checkedMonth) {
+                if (! PayrollActivationService::canView($checkedMonth, Auth::user())) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Payroll for ' . $checkedMonth . ' has not been activated yet.',
+                    ], 403);
+                }
+            }
+
+            $records = PayrollRecord::with(['user.employee.department', 'user.employee.designation'])
+                ->join('users as pu', 'pu.id', '=', 'payroll_records.user_id')
+                ->join('employees as pe', 'pe.id', '=', 'pu.employee_id')
+                ->whereIn('payroll_records.month', [$month, $previousMonth])
+                ->where('payroll_records.pay_day', 'basic')
+                ->where('pe.employee_type', 'permanent')
+                ->select('payroll_records.*')
+                ->orderByRaw("(CASE WHEN pe.employee_code REGEXP '^[0-9]+$' THEN 0 ELSE 1 END) ASC, CAST(REGEXP_SUBSTR(pe.employee_code, '[0-9]+') AS UNSIGNED) ASC, pe.employee_code ASC")
+                ->get();
+
+            $byUserMonth = [];
+            foreach ($records as $record) {
+                $byUserMonth[$record->user_id][$record->month] = $record;
+            }
+
+            $rows = [];
+            $summary = [
+                'current_basic' => 0,
+                'previous_basic' => 0,
+                'difference' => 0,
+                'difference_percent' => null,
+                'employees_current' => 0,
+                'employees_previous' => 0,
+                'added' => 0,
+                'removed' => 0,
+                'increased' => 0,
+                'decreased' => 0,
+                'unchanged' => 0,
+            ];
+
+            foreach ($byUserMonth as $userId => $months) {
+                $current = $months[$month] ?? null;
+                $previous = $months[$previousMonth] ?? null;
+
+                if (! $current && ! $previous) {
+                    continue;
+                }
+
+                $currentBasic = round((float) ($current?->how_much_paid ?? 0), 2);
+                $previousBasic = round((float) ($previous?->how_much_paid ?? 0), 2);
+                $difference = round($currentBasic - $previousBasic, 2);
+
+                if ($current && ! $previous) {
+                    $status = 'added';
+                } elseif (! $current && $previous) {
+                    $status = 'removed';
+                } elseif ($difference > 0) {
+                    $status = 'increased';
+                } elseif ($difference < 0) {
+                    $status = 'decreased';
+                } else {
+                    $status = 'unchanged';
+                }
+
+                $rec = $current ?? $previous;
+                $employee = $rec->user?->employee;
+
+                $rows[] = [
+                    'user_id' => $userId,
+                    'employee_code' => $employee?->employee_code ?? $rec->user?->employee_id,
+                    'full_name' => $rec->user?->name ?? ($employee?->full_name ?? 'N/A'),
+                    'department' => $employee?->department?->name,
+                    'designation' => $employee?->designation?->name,
+                    'employee_type' => $employee?->employee_type ?? 'permanent',
+                    'current_basic' => $currentBasic,
+                    'previous_basic' => $previousBasic,
+                    'difference' => $difference,
+                    'difference_percent' => $previousBasic > 0
+                        ? round(($difference / $previousBasic) * 100, 2)
+                        : null,
+                    'status' => $status,
+                ];
+
+                $summary['current_basic'] += $currentBasic;
+                $summary['previous_basic'] += $previousBasic;
+                $summary['difference'] += $difference;
+                $summary[$status]++;
+                if ($current) {
+                    $summary['employees_current']++;
+                }
+                if ($previous) {
+                    $summary['employees_previous']++;
+                }
+            }
+
+            $summary['difference'] = round($summary['difference'], 2);
+            $summary['difference_percent'] = $summary['previous_basic'] > 0
+                ? round(($summary['difference'] / $summary['previous_basic']) * 100, 2)
+                : null;
+            $summary['current_basic'] = round($summary['current_basic'], 2);
+            $summary['previous_basic'] = round($summary['previous_basic'], 2);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Payroll reconciliation report retrieved successfully',
+                'data' => [
+                    'month' => $month,
+                    'previous_month' => $previousMonth,
+                    'employee_type' => 'permanent',
+                    'summary' => $summary,
+                    'rows' => $rows,
+                ],
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve payroll reconciliation report: ' . $e->getMessage(),
             ], 500);
         }
     }
