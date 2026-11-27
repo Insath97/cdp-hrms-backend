@@ -19,7 +19,7 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Attendance Update Requests|Attendance Update', only: ['index', 'show', 'approve', 'reject']),
+            new Middleware('permission:Attendance Update Requests|Attendance Update', only: ['index', 'listAll', 'show', 'approve', 'reject']),
         ];
     }
 
@@ -31,7 +31,7 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
         try {
             $user = Auth::user();
             $employee = $user->employee;
-            $query = AttendanceUpdateRequest::with(['attendance', 'user', 'employee', 'manager']);
+            $query = AttendanceUpdateRequest::with(['attendance', 'user', 'employee', 'manager', 'approvedByUser', 'rejectedByUser']);
 
             // If not Super Admin, show only requests for current manager
             if (!$user->hasRole('Super Admin')) {
@@ -68,12 +68,55 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
     }
 
     /**
+     * Return every request (no pagination) for tabs that split the full list
+     * into pending and history on the client.
+     */
+    public function listAll(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            $employee = $user->employee;
+            $query = AttendanceUpdateRequest::with(['attendance', 'user', 'employee', 'manager', 'approvedByUser', 'rejectedByUser']);
+
+            // Same visibility rule as index(): managers only see their team.
+            if (!$user->hasRole('Super Admin')) {
+                if (!$employee) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Employee record not found'
+                    ], 404);
+                }
+                $query->where('manager_id', $employee->id);
+            }
+
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Requests retrieved successfully',
+                'data' => $query->orderBy('created_at', 'desc')->get()
+            ], 200);
+        } catch (\Throwable $th) {
+            Log::error('Failed to list all attendance update requests', [
+                'error' => $th->getMessage()
+            ]);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve requests',
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Display the specified request.
      */
     public function show(string $id)
     {
         try {
-            $updateRequest = AttendanceUpdateRequest::with(['attendance', 'user', 'employee', 'manager', 'approvedBy', 'rejectedBy'])->find($id);
+            $updateRequest = AttendanceUpdateRequest::with(['attendance', 'user', 'employee', 'manager', 'approvedByUser', 'rejectedByUser'])->find($id);
 
             if (!$updateRequest) {
                 return response()->json([
@@ -215,7 +258,7 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
             // Update request status
             $updateRequest->update([
                 'status' => 'approved',
-                'approved_by' => $employee->id ?? null,
+                'approved_by' => $user->id,
                 'approved_at' => now(),
                 'previous_clock_in' => $previousClockIn,
                 'previous_clock_out' => $previousClockOut
@@ -283,7 +326,7 @@ class AttendanceUpdateRequestController extends Controller implements HasMiddlew
 
             $updateRequest->update([
                 'status' => 'rejected',
-                'rejected_by' => $employee->id ?? null,
+                'rejected_by' => $user->id,
                 'rejected_at' => now(),
                 'rejection_reason' => $request->input('reason') // Save the rejection reason here
             ]);

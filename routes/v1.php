@@ -139,6 +139,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
         // Attendance Update Requests
         Route::get('update-requests', [AttendanceUpdateRequestController::class, 'index']);
+        Route::get('update-requests/list', [AttendanceUpdateRequestController::class, 'listAll']);
         Route::get('update-requests/{id}', [AttendanceUpdateRequestController::class, 'show']);
         Route::post('update-requests/{id}/approve', [AttendanceUpdateRequestController::class, 'approve']);
         Route::post('update-requests/{id}/reject', [AttendanceUpdateRequestController::class, 'reject']);
@@ -304,6 +305,7 @@ Route::middleware(['auth:api'])->prefix('v1')->group(function () {
 
         // Payroll report (must be before {id} route to avoid conflicts)
         Route::get('/payroll/report', [PayrollAdminController::class, 'payrollReport']);
+        Route::get('/payroll/reconciliation/report', [PayrollAdminController::class, 'reconciliationReport']);
 
         Route::get('/payroll/{id}', [PayrollAdminController::class, 'getPayrollDetails']);
         Route::put('/payroll/{id}', [PayrollAdminController::class, 'updatePayroll']);
